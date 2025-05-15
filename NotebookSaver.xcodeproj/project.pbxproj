@@ -6,14 +6,75 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		7F3764E12DC566A20038F019 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7F3764E02DC566A20038F019 /* WidgetKit.framework */; };
+		7F3764E32DC566A20038F019 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7F3764E22DC566A20038F019 /* SwiftUI.framework */; };
+		7F3764F22DC566A40038F019 /* Cat NoteWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7F3764DE2DC566A20038F019 /* Cat NoteWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		7F3764F02DC566A40038F019 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7F3764A22DC45A9C0038F019 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7F3764DD2DC566A20038F019;
+			remoteInfo = NotebookSaverWidgetsExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		7F3764F72DC566A40038F019 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				7F3764F22DC566A40038F019 /* Cat NoteWidgetsExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
-		7F3764AA2DC45A9C0038F019 /* NotebookSaver.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NotebookSaver.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		7F3764AA2DC45A9C0038F019 /* Cat Scribe.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Cat Scribe.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		7F3764DE2DC566A20038F019 /* Cat NoteWidgetsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Cat NoteWidgetsExtension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		7F3764E02DC566A20038F019 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		7F3764E22DC566A20038F019 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		7F3764D92DC557730038F019 /* Exceptions for "NotebookSaver" folder in "Cat Scribe" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 7F3764A92DC45A9C0038F019 /* Cat Scribe */;
+		};
+		7F3764F62DC566A40038F019 /* Exceptions for "NotebookSaverWidgets" folder in "Cat NoteWidgetsExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 7F3764DD2DC566A20038F019 /* Cat NoteWidgetsExtension */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		7F3764AC2DC45A9C0038F019 /* NotebookSaver */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				7F3764D92DC557730038F019 /* Exceptions for "NotebookSaver" folder in "Cat Scribe" target */,
+			);
 			path = NotebookSaver;
+			sourceTree = "<group>";
+		};
+		7F3764E42DC566A20038F019 /* NotebookSaverWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				7F3764F62DC566A40038F019 /* Exceptions for "NotebookSaverWidgets" folder in "Cat NoteWidgetsExtension" target */,
+			);
+			path = NotebookSaverWidgets;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -26,6 +87,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		7F3764DB2DC566A20038F019 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7F3764E32DC566A20038F019 /* SwiftUI.framework in Frameworks */,
+				7F3764E12DC566A20038F019 /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -33,6 +103,8 @@
 			isa = PBXGroup;
 			children = (
 				7F3764AC2DC45A9C0038F019 /* NotebookSaver */,
+				7F3764E42DC566A20038F019 /* NotebookSaverWidgets */,
+				7F3764DF2DC566A20038F019 /* Frameworks */,
 				7F3764AB2DC45A9C0038F019 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -40,35 +112,69 @@
 		7F3764AB2DC45A9C0038F019 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				7F3764AA2DC45A9C0038F019 /* NotebookSaver.app */,
+				7F3764AA2DC45A9C0038F019 /* Cat Scribe.app */,
+				7F3764DE2DC566A20038F019 /* Cat NoteWidgetsExtension.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		7F3764DF2DC566A20038F019 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				7F3764E02DC566A20038F019 /* WidgetKit.framework */,
+				7F3764E22DC566A20038F019 /* SwiftUI.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		7F3764A92DC45A9C0038F019 /* NotebookSaver */ = {
+		7F3764A92DC45A9C0038F019 /* Cat Scribe */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 7F3764B52DC45A9E0038F019 /* Build configuration list for PBXNativeTarget "NotebookSaver" */;
+			buildConfigurationList = 7F3764B52DC45A9E0038F019 /* Build configuration list for PBXNativeTarget "Cat Scribe" */;
 			buildPhases = (
 				7F3764A62DC45A9C0038F019 /* Sources */,
 				7F3764A72DC45A9C0038F019 /* Frameworks */,
 				7F3764A82DC45A9C0038F019 /* Resources */,
+				7F3764F72DC566A40038F019 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7F3764F12DC566A40038F019 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				7F3764AC2DC45A9C0038F019 /* NotebookSaver */,
+			);
+			name = "Cat Scribe";
+			packageProductDependencies = (
+			);
+			productName = NotebookSaver;
+			productReference = 7F3764AA2DC45A9C0038F019 /* Cat Scribe.app */;
+			productType = "com.apple.product-type.application";
+		};
+		7F3764DD2DC566A20038F019 /* Cat NoteWidgetsExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7F3764F32DC566A40038F019 /* Build configuration list for PBXNativeTarget "Cat NoteWidgetsExtension" */;
+			buildPhases = (
+				7F3764DA2DC566A20038F019 /* Sources */,
+				7F3764DB2DC566A20038F019 /* Frameworks */,
+				7F3764DC2DC566A20038F019 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				7F3764AC2DC45A9C0038F019 /* NotebookSaver */,
+				7F3764E42DC566A20038F019 /* NotebookSaverWidgets */,
 			);
-			name = NotebookSaver;
+			name = "Cat NoteWidgetsExtension";
 			packageProductDependencies = (
 			);
-			productName = NotebookSaver;
-			productReference = 7F3764AA2DC45A9C0038F019 /* NotebookSaver.app */;
-			productType = "com.apple.product-type.application";
+			productName = NotebookSaverWidgetsExtension;
+			productReference = 7F3764DE2DC566A20038F019 /* Cat NoteWidgetsExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -82,6 +188,10 @@
 				TargetAttributes = {
 					7F3764A92DC45A9C0038F019 = {
 						CreatedOnToolsVersion = 16.3;
+						LastSwiftMigration = 1630;
+					};
+					7F3764DD2DC566A20038F019 = {
+						CreatedOnToolsVersion = 16.3;
 					};
 				};
 			};
@@ -94,18 +204,28 @@
 			);
 			mainGroup = 7F3764A12DC45A9C0038F019;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 7F3764AB2DC45A9C0038F019 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				7F3764A92DC45A9C0038F019 /* NotebookSaver */,
+				7F3764A92DC45A9C0038F019 /* Cat Scribe */,
+				7F3764DD2DC566A20038F019 /* Cat NoteWidgetsExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		7F3764A82DC45A9C0038F019 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7F3764DC2DC566A20038F019 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +242,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		7F3764DA2DC566A20038F019 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		7F3764F12DC566A40038F019 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7F3764DD2DC566A20038F019 /* Cat NoteWidgetsExtension */;
+			targetProxy = 7F3764F02DC566A40038F019 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		7F3764B32DC45A9E0038F019 /* Debug */ = {
@@ -251,16 +386,63 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = Q26G342EEL;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = NotebookSaver/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Cat Scribe";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Cat Note needs access to the camera to capture images of your notebook pages.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Cat Note needs access to save captured notebook photos to your library when the 'Save to Album' setting is enabled.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Cat Note needs access to your photo library to save photos into the 'notebook' album and retrieve links to them.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
+				INFOPLIST_KEY_UIStatusBarHidden = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.daviddegner.NotebookSaver;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		7F3764B72DC45A9E0038F019 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Q26G342EEL;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = NotebookSaver/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Cat Scribe";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Cat Note needs access to the camera to capture images of your notebook pages.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Cat Note needs access to save captured notebook photos to your library when the 'Save to Album' setting is enabled.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Cat Note needs access to your photo library to save photos into the 'notebook' album and retrieve links to them.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
+				INFOPLIST_KEY_UIStatusBarHidden = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -272,30 +454,56 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
-			name = Debug;
+			name = Release;
 		};
-		7F3764B72DC45A9E0038F019 /* Release */ = {
+		7F3764F42DC566A40038F019 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = Q26G342EEL;
-				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_FILE = NotebookSaverWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Cat NoteWidgets";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.daviddegner.NotebookSaver;
+				PRODUCT_BUNDLE_IDENTIFIER = com.daviddegner.NotebookSaver.NotebookSaverWidgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		7F3764F52DC566A40038F019 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Q26G342EEL;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = NotebookSaverWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Cat NoteWidgets";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.daviddegner.NotebookSaver.NotebookSaverWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -314,11 +522,20 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		7F3764B52DC45A9E0038F019 /* Build configuration list for PBXNativeTarget "NotebookSaver" */ = {
+		7F3764B52DC45A9E0038F019 /* Build configuration list for PBXNativeTarget "Cat Scribe" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				7F3764B62DC45A9E0038F019 /* Debug */,
 				7F3764B72DC45A9E0038F019 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7F3764F32DC566A40038F019 /* Build configuration list for PBXNativeTarget "Cat NoteWidgetsExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7F3764F42DC566A40038F019 /* Debug */,
+				7F3764F52DC566A40038F019 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
