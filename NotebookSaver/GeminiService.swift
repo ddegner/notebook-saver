@@ -179,7 +179,7 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
         }
         let prompt = settings.prompt
         // Quality setting is not currently user-configurable, use a default
-        let heicQuality: CGFloat = 0.5 // Renamed for clarity, using same default quality
+        let heicQuality: CGFloat = 0.4 // Renamed for clarity, using same default quality
 
         // 1. Prepare Image using the new ImageProcessor workflow
         let preparedImageData: Data

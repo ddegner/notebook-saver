@@ -1,0 +1,40 @@
+# Ignore macOS and Xcode system files
+.DS_Store
+*.xcuserstate
+*.xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+
+# Ignore Xcode project user data
+*.xcuserdatad/
+*.xcscmblueprint
+
+# Ignore build artifacts
+build/
+DerivedData/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+
+# Ignore SwiftPM artifacts
+.swiftpm/
+Package.resolved
+
+# Ignore asset catalog generated files
+*.xcassets/*.imageset/Contents.json
+*.xcassets/*.appiconset/Contents.json
+*.xcassets/*.colorset/Contents.json
+
+# Ignore backup files
+*~
+*.swp
+*.swo
+
+# Ignore log files
+*.log
+
+# Ignore icons (if not part of source)
+icon_dark.png
+icon_light.png
+icon_tint.png 

@@ -12,7 +12,7 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
     @Published var isSetupComplete = false // Track if setup has completed
 
     // --- Flash Control ---
-    @Published var flashMode: AVCaptureDevice.FlashMode = .off // Default to Off (was .auto)
+    @Published var flashMode: AVCaptureDevice.FlashMode = .auto // Default to Auto
     @Published var isFlashAvailable = false
     // ---------------------
 
@@ -312,42 +312,6 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
             self.session.stopRunning()
             print("Camera session stopped.")
         }
-    }
-
-    // MARK: - Flash Control Method
-
-    func cycleFlashMode() {
-        guard isFlashAvailable else { return } // Only proceed if flash is available
-
-        let currentMode = flashMode
-        var nextMode: AVCaptureDevice.FlashMode = .off
-
-        // Cycle through Off -> On -> Auto -> Off
-        switch currentMode {
-        case .off:
-            // Check if .on is supported before switching
-            if photoOutput.supportedFlashModes.contains(.on) {
-                 nextMode = .on
-            } else if photoOutput.supportedFlashModes.contains(.auto) {
-                 nextMode = .auto // Fallback to Auto if On not supported
-            } else {
-                 nextMode = .off // Stay off if neither On nor Auto supported
-            }
-        case .on:
-             // Check if .auto is supported before switching
-             if photoOutput.supportedFlashModes.contains(.auto) {
-                 nextMode = .auto
-             } else {
-                  nextMode = .off // Fallback to Off if Auto not supported
-             }
-        case .auto:
-            nextMode = .off // Always cycle from Auto back to Off
-        @unknown default:
-            print("Unknown flash mode: \(currentMode). Setting to Off.")
-            nextMode = .off
-        }
-        print("Cycling flash mode from \(currentMode) to \(nextMode)")
-        flashMode = nextMode // Update the published property
     }
 
     // MARK: - Photo Capture

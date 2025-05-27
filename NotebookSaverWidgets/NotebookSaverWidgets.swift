@@ -79,7 +79,7 @@ struct OpenAppWidgetEntryView : View {
                         HStack {
                             Image(systemName: "plus.viewfinder")
                                 .font(.body)
-                            Text("Cat Note")
+                            Text("Cat Scribe")
                                 .font(.headline)
                         }
                         Text("Tap to add note")
@@ -97,7 +97,7 @@ struct OpenAppWidgetEntryView : View {
                         .foregroundColor(.blue)
                         .padding(.bottom, 5)
 
-                    Text("Cat Note")
+                    Text("Cat Scribe")
                         .font(.headline)
                         .padding(.bottom, 2)
 
@@ -126,8 +126,8 @@ struct OpenAppWidget: Widget {
             OpenAppWidgetEntryView(entry: entry)
                 .widgetBackground(Color.clear) // Essential for Lock Screen transparency
         }
-        .configurationDisplayName("Cat Note") // Name shown in the widget gallery
-        .description("Quickly open the Cat Note app.") // Description shown in the gallery
+        .configurationDisplayName("Cat Scribe") // Name shown in the widget gallery
+        .description("Quickly open the Cat Scribe app.") // Description shown in the gallery
         // Lock screen widgets plus systemMedium to fix preview error
         .supportedFamilies([
             .accessoryInline,
