@@ -1,6 +1,6 @@
 import Foundation
 import AVFoundation
-import UIKit // Needed for UIImage processing
+import SwiftUI // Needed for UIImage processing
 import Photos // For saving to photo library
 
 class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
@@ -23,6 +23,50 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
     private var photoOutput = AVCapturePhotoOutput()
     private var videoDeviceInput: AVCaptureDeviceInput?
     private var sessionQueue = DispatchQueue(label: "com.example.notebooksaver.sessionQueue")
+    // Define CameraError enum
+    enum CameraError: Error {
+        case authorizationDenied
+        case captureError
+        case noDeviceFound
+        case setupError
+        case invalidInput
+        case invalidOutput
+        case setupFailed
+        case captureFailed(Error?)
+        case processingFailed(String)
+        case photoLibraryAccessDenied
+        case albumCreationFailed(Error)
+        case photoSavingFailed(String)
+        
+        var localizedDescription: String {
+            switch self {
+            case .authorizationDenied:
+                return "Camera access was denied"
+            case .captureError:
+                return "Failed to capture photo"
+            case .noDeviceFound:
+                return "No camera device found"
+            case .setupError:
+                return "Failed to setup camera"
+            case .invalidInput:
+                return "Invalid camera input device"
+            case .invalidOutput:
+                return "Invalid camera output"
+            case .setupFailed:
+                return "Camera setup failed"
+            case .captureFailed(let error):
+                return "Photo capture failed: \(error?.localizedDescription ?? "Unknown error")"
+            case .processingFailed(let message):
+                return "Photo processing failed: \(message)"
+            case .photoLibraryAccessDenied:
+                return "Photo library access denied"
+            case .albumCreationFailed(let error):
+                return "Failed to create album: \(error.localizedDescription)"
+            case .photoSavingFailed(let message):
+                return "Failed to save photo: \(message)"
+            }
+        }
+    }
 
     // Store the completion handler for the capture request
     private var photoCaptureCompletion: ((Result<Data, CameraError>) -> Void)?
@@ -39,23 +83,6 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
         }
     }
     
-    /// Asynchronous setup for deferred initialization
-    func setupAsync() async {
-        // Check if already set up
-        if isSetupComplete { return }
-        
-        // Capture necessary state before the continuation to avoid capturing self
-        let queue = sessionQueue
-        
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            // Run setup on background thread
-            queue.async { [weak self] in
-                self?.checkPermissionsAndSetup()
-                continuation.resume()
-            }
-        }
-    }
-    
     // MARK: - Setup and Permissions
 
     func checkPermissionsAndSetup() {
@@ -63,52 +90,54 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
             case .authorized:
                 // Permission already granted
-                 self.isAuthorized = true
-                 sessionQueue.async { [weak self] in
-                     self?.setupSession()
-                     DispatchQueue.main.async {
-                         self?.isSetupComplete = true
-                     }
-                 }
+                // Run the configuration first, then publish state changes.
+                sessionQueue.async { [weak self] in
+                    self?.setupSession()
+                    DispatchQueue.main.async { [weak self] in
+                        // Mark as authorized and fully set up only after configuration completes.
+                        self?.isAuthorized = true
+                        self?.isSetupComplete = true
+                    }
+                }
             case .notDetermined:
                 // Request permission
                  sessionQueue.async { // Perform blocking request off the main thread
                      AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
                          DispatchQueue.main.async {
-                                     self?.isAuthorized = granted
                                      if granted {
                                          self?.sessionQueue.async {
                                               self?.setupSession()
                                               DispatchQueue.main.async {
+                                                  self?.isAuthorized = true
                                                   self?.isSetupComplete = true
                                               }
                                           }
                                      } else {
-                                 print("Camera permission denied.")
-                                 self?.errorMessage = CameraError.authorizationDenied.localizedDescription
-                             }
+                                         self?.isAuthorized = false
+                                         print("Camera permission denied.")
+                                         self?.errorMessage = CameraError.authorizationDenied.localizedDescription
+                                     }
                          }
                      }
                  }
             case .denied, .restricted:
                 // Permission denied or restricted
-                 self.isAuthorized = false
-                 self.errorMessage = CameraError.authorizationDenied.localizedDescription
+                 DispatchQueue.main.async { [weak self] in
+                     self?.isAuthorized = false
+                     self?.errorMessage = CameraError.authorizationDenied.localizedDescription
+                 }
                  print("Camera permission was denied or restricted previously.")
             @unknown default:
                 // Handle future cases
-                 self.isAuthorized = false
+                 DispatchQueue.main.async { [weak self] in
+                     self?.isAuthorized = false
+                     self?.errorMessage = "Unknown camera authorization status."
+                 }
                  print("Unknown camera authorization status.")
-                 self.errorMessage = "Unknown camera authorization status."
         }
     }
 
     private func setupSession() {
-         guard isAuthorized else {
-             print("Attempted to setup session without authorization.")
-             // Setting errorMessage is handled by checkPermissionsAndSetup
-             return
-         }
          guard !session.isRunning else {
              print("Session is already running.")
              return
@@ -401,8 +430,8 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
 
     // MARK: - Photo Saving Functions
 
-    // Save a photo to the "notebook" album and return the local identifier
-    func savePhotoToAlbum(imageData: Data) async throws -> String {
+    // Save a photo to the specified album and return the local identifier
+    func savePhotoToAlbum(imageData: Data, albumName: String) async throws -> String {
         // Convert data to UIImage
         guard let _ = UIImage(data: imageData) else {
             throw CameraError.processingFailed("Failed to create image from captured data")
@@ -426,7 +455,6 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
         }
 
         // Create or get album
-        let albumName = "notebook"
         var album: PHAssetCollection?
 
         // Find album

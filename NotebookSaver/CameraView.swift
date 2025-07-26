@@ -3,7 +3,7 @@ import AVFoundation // Needed for AVCaptureSession and sound effects
 import UIKit // For UIKit components like UIImpactFeedbackGenerator, UIApplication, etc.
 
 struct CameraView: View {
-    @StateObject private var cameraManager = CameraManager(setupOnInit: false)
+    @StateObject private var cameraManager = CameraManager(setupOnInit: true)
     @Binding var isShowingSettings: Bool
     
     @State private var isLoading: Bool = false
@@ -12,6 +12,11 @@ struct CameraView: View {
     @State private var currentQuote: (quote: String, author: String)?
     
     @Environment(\.safeAreaInsets) private var safeAreaInsets
+
+    private func isDraftsAppInstalled() -> Bool {
+        guard let draftsURL = URL(string: "drafts://") else { return false }
+        return UIApplication.shared.canOpenURL(draftsURL)
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -89,9 +94,6 @@ struct CameraPreviewArea: View {
             .frame(width: screenWidth, height: cameraHeight)
             .clipped() // Ensure camera preview doesn't overflow
             .background(Color.black)
-            .onAppear {
-                cameraManager.checkPermissionsAndSetup()
-            }
             .onDisappear {
                 cameraManager.stopSession()
             }
@@ -182,14 +184,13 @@ struct SettingsToggleButton: View {
                 isShowingSettings.toggle()
             }
             
-            // Delay haptic feedback and sound to match when camera movement feels complete
-            // The ContentView animation feels complete around 0.35 seconds
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                let impactGenerator = UIImpactFeedbackGenerator(style: .medium)
-                impactGenerator.impactOccurred(intensity: 1.0)
+            // Faster haptic feedback and sound - reduced delay to match quicker animation
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                let impactGenerator = UIImpactFeedbackGenerator(style: .light)
+                impactGenerator.impactOccurred(intensity: 0.7)
                 
-                // Play deeper clunk sound when camera reaches its final position
-                AudioServicesPlaySystemSound(1105)
+                // Play softer click sound when camera reaches its final position
+                AudioServicesPlaySystemSound(1104) // Softer click sound
             }
         } label: {
             Image(systemName: "chevron.up")
@@ -229,14 +230,10 @@ extension View {
                 } else {
                     if cameraManager.permissionRequested {
                         print("CameraView: isAuthorized changed to false after permission check.")
-                        errorMessage.wrappedValue = CameraError.authorizationDenied.localizedDescription
+                        errorMessage.wrappedValue = CameraManager.CameraError.authorizationDenied.localizedDescription
                         showErrorAlert.wrappedValue = true
                     }
                 }
-            }
-            .task {
-                try? await Task.sleep(nanoseconds: 100_000_000)
-                await cameraManager.setupAsync()
             }
     }
 }
@@ -261,19 +258,19 @@ extension CameraView {
         }
     }
     
-    private func handlePhotoCapture(result: Result<Data, CameraError>) async {
+    private func handlePhotoCapture(result: Result<Data, CameraManager.CameraError>) async {
         do {
             let capturedImageData = try result.get()
             print("Photo captured successfully, size: \(capturedImageData.count) bytes")
 
             let processedImage = try await processImage(from: capturedImageData)
-            let photoURL = try await savePhotoIfNeeded(image: processedImage)
+            let _ = try await savePhotoIfNeeded(image: processedImage)
             let extractedText = try await extractTextFromImage(capturedImageData)
-            try await sendToTargetApp(text: extractedText, photoURL: photoURL)
+            try await sendToTargetApp(text: extractedText)
 
             await MainActor.run { isLoading = false }
 
-        } catch let error as CameraError {
+        } catch let error as CameraManager.CameraError {
             await handleError(error.localizedDescription)
         } catch let error as APIError {
             await handleError("Gemini Error: \(error.localizedDescription)")
@@ -287,21 +284,11 @@ extension CameraView {
     }
     
     private func processImage(from data: Data) async throws -> UIImage {
-        guard var imageToProcess = UIImage(data: data) else {
-            throw CameraError.processingFailed("Could not create UIImage from captured data.")
+        guard let imageToProcess = UIImage(data: data) else {
+            throw CameraManager.CameraError.processingFailed("Could not create UIImage from captured data.")
         }
 
-        let imageProcessor = ImageProcessor()
-        do {
-            print("CameraView: Attempting to detect and crop page using Vision framework.")
-            imageToProcess = try await imageProcessor.detectAndCropPage(image: imageToProcess)
-            print("CameraView: Page detection and cropping completed successfully.")
-        } catch let pageError as PreprocessingError {
-            print("CameraView: Page detection/cropping failed: \(pageError.localizedDescription). Proceeding with original image for now.")
-        } catch {
-            print("CameraView: An unexpected error occurred during page detection/cropping: \(error.localizedDescription). Proceeding with original image.")
-        }
-        
+        // For now, return the original image without any processing
         return imageToProcess
     }
     
@@ -312,11 +299,11 @@ extension CameraView {
         guard shouldSavePhoto else { return nil }
         
         do {
-            print("Saving photo to album...")
+            print("Saving photo to album: \(photoFolder)")
             guard let processedImageData = image.jpegData(compressionQuality: 0.9) else {
-                throw CameraError.processingFailed("Could not encode processed image for saving.")
+                throw CameraManager.CameraError.processingFailed("Could not encode processed image for saving.")
             }
-            let localIdentifier = try await cameraManager.savePhotoToAlbum(imageData: processedImageData)
+            let localIdentifier = try await cameraManager.savePhotoToAlbum(imageData: processedImageData, albumName: photoFolder)
             let photoURL = cameraManager.generatePhotoURL(for: localIdentifier)
             print("Photo saved with URL: \(photoURL?.absoluteString ?? "none")")
             return photoURL
@@ -349,14 +336,16 @@ extension CameraView {
         return extractedText
     }
     
-    private func sendToTargetApp(text: String, photoURL: URL?) async throws {
+    private func sendToTargetApp(text: String) async throws {
         let draftsTag = UserDefaults.standard.string(forKey: "draftsTag") ?? "notebook"
         print("Using draftsTag: \(draftsTag)")
 
-        let targetApp = UserDefaults.standard.string(forKey: "targetApp") ?? "Drafts"
-        print("Target app: \(targetApp)")
+        // let targetApp = UserDefaults.standard.string(forKey: "targetApp") ?? "Drafts" // REMOVE: No longer needed
+        // print("Target app: \\(targetApp)") // REMOVE: No longer needed
 
+        // Include photo link in text if available and enabled in settings
         let finalText = text
+        
         var tagsToSend = [String]()
         if !draftsTag.isEmpty {
             tagsToSend.append(draftsTag)
@@ -365,15 +354,22 @@ extension CameraView {
         let uniqueTags = Set(tagsToSend)
         let combinedTags = uniqueTags.joined(separator: ",")
 
-        if targetApp == "Drafts" {
-            print("Calling Drafts Helper with text: \(finalText.prefix(50))... and tags: \(combinedTags)")
-            try await DraftsHelper.createDraft(with: finalText, tag: combinedTags)
-            print("Drafts Helper call succeeded.")
-        } else if targetApp == "Notes" {
-            print("Preparing to share to Notes app...")
-            shareToNotesApp(text: text, photoURL: photoURL)
+        // if targetApp == "Drafts" { // MODIFY: Check if Drafts is installed
+        if isDraftsAppInstalled() {
+            print("Drafts app is installed. Sending text to Drafts.")
+            try await sendToDraftsApp(text: finalText, tags: combinedTags)
+        // } else if targetApp == "Notes" { // MODIFY: Fallback to Share Sheet
+        } else {
+            print("Drafts app is not installed. Presenting share sheet.")
+            presentShareSheet(text: finalText)
             print("Share sheet presented (or attempted).")
         }
+    }
+    
+    private func sendToDraftsApp(text: String, tags: String) async throws {
+        print("Calling Drafts Helper with text: \(text.prefix(50))... and tags: \(tags)")
+        let _ = try await DraftsHelper.createDraftAsync(with: text, tag: tags)
+        print("Drafts Helper call succeeded.")
     }
     
     private func handleError(_ message: String) async {
@@ -386,11 +382,8 @@ extension CameraView {
     }
 
     @MainActor
-    private func shareToNotesApp(text: String, photoURL: URL?) {
-        var activityItems: [Any] = [text]
-        if let url = photoURL {
-            activityItems.append(url)
-        }
+    private func presentShareSheet(text: String) {
+        let activityItems: [Any] = [text]
 
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let rootViewController = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
@@ -474,40 +467,6 @@ struct CaptureButtonView: View {
 }
 
 // MARK: - Error Types and Extensions
-enum CameraError: LocalizedError {
-    case captureFailed(Error?)
-    case authorizationDenied
-    case setupFailed
-    case invalidInput
-    case invalidOutput
-    case processingFailed(String)
-    case photoLibraryAccessDenied
-    case albumCreationFailed(Error)
-    case photoSavingFailed(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .captureFailed(let underlyingError):
-            return "Failed to capture photo." + (underlyingError != nil ? " (\(underlyingError!.localizedDescription))" : "")
-        case .authorizationDenied:
-            return "Camera access was denied. Please enable it in Settings."
-        case .setupFailed:
-            return "Could not set up the camera session."
-        case .invalidInput:
-             return "Could not add camera input device."
-         case .invalidOutput:
-             return "Could not add photo output."
-        case .processingFailed(let message):
-             return "Failed to process image: \(message)"
-        case .photoLibraryAccessDenied:
-             return "Photos access denied. Please enable it in Settings to save photos."
-        case .albumCreationFailed(let error):
-             return "Failed to create album: \(error.localizedDescription)"
-        case .photoSavingFailed(let message):
-             return "Failed to save photo: \(message)"
-        }
-    }
-}
 
 extension EnvironmentValues {
     var safeAreaInsets: EdgeInsets {

@@ -1,10 +1,12 @@
 import SwiftUI
+import UIKit // For UIResponder keyboard notifications
 import Foundation // For NotificationCenter, keep if needed
 
 // Enum for AI Model Identifiers
 enum AIModelIdentifier: String, CaseIterable, Identifiable {
-    case geminiFlash25Preview = "gemini-2.5-flash-preview-04-17"
-    case geminiPro25Preview = "gemini-2.5-pro-preview"
+    case geminiFlash25 = "gemini-2.5-flash"
+    case geminiPro25 = "gemini-2.5-pro"
+    case geminiFlash20 = "gemini-2.0-flash"
     case geminiPro15 = "gemini-1.5-pro"
     case geminiFlash15 = "gemini-1.5-flash"
     case geminiFlash15B = "gemini-1.5-flash-8b"
@@ -14,8 +16,9 @@ enum AIModelIdentifier: String, CaseIterable, Identifiable {
 
     var displayName: String { // Provides a default display name if not overridden
         switch self {
-        case .geminiFlash25Preview: return "Gemini 2.5 Flash Preview"
-        case .geminiPro25Preview: return "Gemini 2.5 Pro Preview"
+        case .geminiFlash25: return "Gemini 2.5 Flash"
+        case .geminiPro25: return "Gemini 2.5 Pro"
+        case .geminiFlash20: return "Gemini 2.0 Flash"
         case .geminiPro15: return "Gemini 1.5 Pro"
         case .geminiFlash15: return "Gemini 1.5 Flash"
         case .geminiFlash15B: return "Gemini 1.5 Flash 8B"
@@ -30,21 +33,6 @@ struct ModelOption: Identifiable, Hashable {
     let displayName: String
     let speed: Int // 1-5 scale
     let quality: Int // 1-5 scale
-}
-
-// Enum for Target Application
-enum TargetApplication: String, CaseIterable, Identifiable {
-    case drafts = "Drafts"
-    case other = "Notes" // "Notes" is used as the tag in the Picker for "Other"
-
-    var id: String { self.rawValue }
-
-    var displayName: String {
-        switch self {
-        case .drafts: return "Drafts"
-        case .other: return "Other" // Display name for UI
-        }
-    }
 }
 
 // Enum for Vision Recognition Level
@@ -73,6 +61,14 @@ enum SettingsTab: Int, CaseIterable, Identifiable {
         case .general: return "General"
         case .ai: return "AI"
         case .about: return "About"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .general: return "gear"
+        case .ai: return "brain"
+        case .about: return "info.circle"
         }
     }
 }
@@ -144,34 +140,40 @@ struct CustomSegmentedPicker<Data, Content>: View where Data: RandomAccessCollec
 struct SettingsView: View {
     // Tab selection state
     @State private var selectedTab: SettingsTab = .general
+    
+    // Keyboard handling
+    @State private var keyboardHeight: CGFloat = 0
 
     // AppStorage keys - good practice to define them
     private enum StorageKeys {
         static let selectedModelId = "selectedModelId"
         static let customModelName = "customModelName"
         static let userPrompt = "userPrompt"
-        static let apiEndpoint = "apiEndpointUrlString"
+        static let apiEndpointUrlString = "apiEndpointUrlString"
         static let draftsTag = "draftsTag"
         static let photoFolderName = "photoFolderName" // Changed from savePhotosToAlbum
-        static let targetApp = "targetApp"
-        static let textExtractorService = "textExtractorService" // Add new key for the selected text extractor service
+        static let savePhotosEnabled = "savePhotosEnabled" // New toggle for saving photos
+        static let addDraftTagEnabled = "addDraftTagEnabled" // New toggle for adding draft tags
+        // static let textExtractorService = "textExtractorService" // Removed, selection is now automatic
         // Vision specific keys
         static let visionRecognitionLevel = "visionRecognitionLevel"
         static let visionUsesLanguageCorrection = "visionUsesLanguageCorrection"
     }
 
     // === Persisted Settings ===
-    @AppStorage(StorageKeys.selectedModelId) private var selectedModelId: AIModelIdentifier = .geminiFlash25Preview
+    @AppStorage(StorageKeys.selectedModelId) private var selectedModelId: AIModelIdentifier = .geminiFlash25
     @AppStorage(StorageKeys.customModelName) private var customModelName: String = ""
     @AppStorage(StorageKeys.userPrompt) private var userPrompt: String = """
-        Output the text from the image as text. Start immediately with the first word. \
-        Format for clarity, format blocks of text into paragraphs, and use markdown sparingly.
+        Output the text from the image as text. Start immediately with the first word. Format for clarity, format blocks of text into paragraphs, and use markdown sparingly where useful. 
+
+        Do not include an intro like: "Here is the text extracted from the image:"
         """
-    @AppStorage(StorageKeys.apiEndpoint) private var apiEndpointUrlString: String = "https://generativelanguage.googleapis.com/v1beta/models/"
+    @AppStorage(StorageKeys.apiEndpointUrlString) private var apiEndpointUrlString: String = "https://generativelanguage.googleapis.com/v1beta/models/"
     @AppStorage(StorageKeys.draftsTag) private var draftsTag: String = "notebook"
     @AppStorage(StorageKeys.photoFolderName) private var photoFolderName: String = "notebook" // Changed from savePhotosToAlbum
-    @AppStorage(StorageKeys.targetApp) private var targetApp: TargetApplication = .drafts // Default to Drafts
-    @AppStorage(StorageKeys.textExtractorService) private var selectedTextExtractor: TextExtractorType = .gemini // Default to Gemini
+    @AppStorage("savePhotosEnabled") private var savePhotosEnabled: Bool = true // New toggle for saving photos
+    @AppStorage("addDraftTagEnabled") private var addDraftTagEnabled: Bool = true // New toggle for adding draft tags
+    // @AppStorage(StorageKeys.textExtractorService) private var selectedTextExtractor: TextExtractorType = .gemini // Removed
     // Vision specific settings
     @AppStorage(StorageKeys.visionRecognitionLevel) private var visionRecognitionLevel: VisionRecognitionLevel = .accurate // Default to accurate
     @AppStorage(StorageKeys.visionUsesLanguageCorrection) private var visionUsesLanguageCorrection: Bool = true // Default to true
@@ -191,6 +193,13 @@ struct SettingsView: View {
     @State private var connectionStatus: ConnectionStatus = .idle
     @State private var connectionStatusMessage: String = ""
 
+    // Model management state
+    @State private var availableModels: [ModelOption] = []
+    @State private var isRefreshingModels = false
+    @State private var modelsRefreshError: String?
+    @State private var showAllModels = false
+    @ObservedObject private var modelService = GeminiModelService.shared
+
     // Focus state for text fields to enable tap-to-dismiss
     @FocusState private var isPromptFocused: Bool
     @FocusState private var isApiKeyFocused: Bool
@@ -199,47 +208,40 @@ struct SettingsView: View {
     @FocusState private var isCustomModelFocused: Bool
     @FocusState private var isApiEndpointFocused: Bool
 
-    // === Available Model Options ===
-    let availableModels: [ModelOption] = [
-        // --- Preview --- (Experimental)
-        ModelOption(
-            id: .geminiFlash25Preview,
-            displayName: "Gemini 2.5 Flash",
-            speed: 4,
-            quality: 5
-        ),
-        ModelOption(
-            id: .geminiPro25Preview,
-            displayName: "Gemini 2.5 Pro",
-            speed: 2,
-            quality: 5
-        ),
-        // --- Stable / Latest --- (Generally Recommended)
-        ModelOption(
-            id: .geminiPro15,
-            displayName: "Gemini 1.5 Pro",
-            speed: 3,
-            quality: 5
-        ),
-        ModelOption(
-            id: .geminiFlash15,
-            displayName: "Gemini 1.5 Flash",
-            speed: 5,
-            quality: 3
-        ),
-        ModelOption(
-            id: .geminiFlash15B,
-            displayName: "Gemini 1.5 Flash 8B",
-            speed: 4,
-            quality: 4
-        ),
-        ModelOption(
-            id: .custom,
-            displayName: "Custom Model",
-            speed: 3,
-            quality: 3
-        )
+    // === Computed property for dynamic AI service selection ===
+    private var currentTextExtractorType: TextExtractorType {
+        // Fallback to Vision if API key is missing or connection test failed
+        if apiKey.isEmpty || connectionStatus == .failure {
+            return .vision
+        }
+        return .gemini
+    }
+    
+    // Recommended models for simplified UI
+    private let recommendedModelIds: Set<AIModelIdentifier> = [
+        .geminiFlash25,
+        .geminiPro25,
+        .geminiFlash15
     ]
+    
+    // Filtered models - show all if toggled, otherwise only recommended
+    private var displayedModels: [ModelOption] {
+        if showAllModels {
+            return availableModels
+        }
+        // Show recommended models first, then add custom if it's selected but not in recommended
+        let recommended = availableModels.filter { recommendedModelIds.contains($0.id) }
+        
+        // If current selection is custom or not in recommended, make sure it's included
+        if selectedModelId == .custom || (!recommendedModelIds.contains(selectedModelId) && !recommended.contains { $0.id == selectedModelId }) {
+            let currentModel = availableModels.first { $0.id == selectedModelId }
+            if let current = currentModel, !recommended.contains(where: { $0.id == current.id }) {
+                return recommended + [current]
+            }
+        }
+        
+        return recommended
+    }
 
     // Sample prompts
     let promptExamples = [
@@ -279,57 +281,81 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Add padding at the top so tabs are visible when camera slides up
-            Spacer()
-                .frame(height: 50) // Reduced space for the camera's bottom portion
-            
-            // Custom tab selector
-            HStack(spacing: 0) {
-                ForEach(SettingsTab.allCases) { tab in
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            selectedTab = tab
-                        }
-                    }) {
-                        VStack(spacing: 8) {
-                            Text(tab.displayName)
-                                .font(.headline)
-
-                            ZStack {
-                                // Transparent placeholder for consistent height
-                                Capsule().fill(Color.clear).frame(height: 5)
-
-                                if selectedTab == tab {
-                                    Capsule() // Use Capsule for rounded ends
-                                        .fill(Color.orangeTabbyAccent)
-                                        .frame(height: 5) // Make it thicker
-                                        .transition(.opacity)
-                                }
-                            }
-                        }
-                        .foregroundColor(selectedTab == tab ? .orangeTabbyAccent : .orangeTabbyText.opacity(0.6))
-                        .padding(.vertical, 12)
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                // Add padding at the top so tabs are visible when camera slides up
+                Spacer()
+                    .frame(height: 50) // Reduced space for the camera's bottom portion
+                
+                // Tab content - using conditional views instead of TabView for proper scrolling
+                Group {
+                    switch selectedTab {
+                    case .general:
+                        generalTabView
+                    case .ai:
+                        aiTabView
+                    case .about:
+                        aboutTabView
                     }
-                    .frame(maxWidth: .infinity)
                 }
-            }
-            .padding(.top, 8)
-            .background(Color.orangeTabbyBackground) // Changed background to match main
-
-            // Tab content - using conditional views instead of TabView for proper scrolling
-            Group {
-                switch selectedTab {
-                case .general:
-                    generalTabView
-                case .ai:
-                    aiTabView
-                case .about:
-                    aboutTabView
+                .transition(.opacity)
+                .animation(.easeInOut(duration: 0.2), value: selectedTab)
+                .frame(maxHeight: .infinity) // Allow content to expand
+                
+                // Custom tab selector - moved to bottom with enhanced 3D styling
+                HStack(spacing: 0) {
+                    ForEach(Array(SettingsTab.allCases.enumerated()), id: \.element) { index, tab in
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedTab = tab
+                            }
+                        }) {
+                            VStack(spacing: 6) {
+                                // Icon with backlit effect for selected tab
+                                Image(systemName: tab.iconName)
+                                    .font(.system(size: 22, weight: .medium))
+                                    .foregroundColor(selectedTab == tab ? Color(red: 1.0, green: 0.4, blue: 0.0) : Color.orangeTabbyText.opacity(0.6))
+                                    .shadow(color: selectedTab == tab ? Color.yellow.opacity(0.7) : Color.clear, radius: selectedTab == tab ? 4 : 0)
+                                    .shadow(color: selectedTab == tab ? Color.yellow.opacity(0.4) : Color.clear, radius: selectedTab == tab ? 8 : 0)
+                                
+                                Text(tab.displayName)
+                                    .font(.caption2)
+                                    .fontWeight(selectedTab == tab ? .semibold : .regular)
+                                    .foregroundColor(selectedTab == tab ? Color(red: 1.0, green: 0.4, blue: 0.0) : Color.orangeTabbyText.opacity(0.6))
+                                    .shadow(color: selectedTab == tab ? Color.yellow.opacity(0.6) : Color.clear, radius: selectedTab == tab ? 3 : 0)
+                                    .shadow(color: selectedTab == tab ? Color.yellow.opacity(0.3) : Color.clear, radius: selectedTab == tab ? 6 : 0)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 60)
+                            .scaleEffect(selectedTab == tab ? 1.05 : 1.0)
+                            .animation(.easeInOut(duration: 0.2), value: selectedTab == tab)
+                        }
+                        .padding(.horizontal, 4)
+                        
+                        // Add vertical divider between tabs (but not after the last one)
+                        if index < SettingsTab.allCases.count - 1 {
+                            Rectangle()
+                                .fill(Color.orangeTabbyDark.opacity(0.5))
+                                .frame(width: 1, height: 40)
+                                .padding(.vertical, 10)
+                        }
+                    }
                 }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 12)
+                .padding(.bottom, 16) // Add extra space under the tabs
+                .background(
+                    Color.orangeTabbyBackground
+                        .overlay(
+                            Rectangle()
+                                .fill(Color.orangeTabbyDark.opacity(0.1))
+                                .frame(height: 1),
+                            alignment: .top
+                        )
+                )
+                .background(Color.orangeTabbyBackground) // Extend background to safe area
             }
-            .transition(.opacity)
-            .animation(.easeInOut(duration: 0.2), value: selectedTab)
+            .frame(width: geometry.size.width, height: geometry.size.height - 80) // Subtract 80 to account for top padding in ContentView
         }
         .background(Color.orangeTabbyBackground)
         .preferredColorScheme(.light)
@@ -338,42 +364,97 @@ struct SettingsView: View {
             if apiEndpointUrlString.isEmpty {
                 apiEndpointUrlString = "https://generativelanguage.googleapis.com/v1beta/models/"
             }
+            setupKeyboardObservers()
+            initializeModels()
+        }
+        .onDisappear {
+            removeKeyboardObservers()
         }
     }
 
+    // MARK: - Keyboard Handling
+    
+    private func setupKeyboardObservers() {
+        NotificationCenter.default.addObserver(
+            forName: UIResponder.keyboardWillShowNotification,
+            object: nil,
+            queue: .main
+        ) { notification in
+            if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    // Add a larger buffer to ensure text field is fully visible with extra space
+                    self.keyboardHeight = keyboardFrame.height + 60
+                }
+            }
+        }
+        
+        NotificationCenter.default.addObserver(
+            forName: UIResponder.keyboardWillHideNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            withAnimation(.easeInOut(duration: 0.3)) {
+                self.keyboardHeight = 0
+            }
+        }
+    }
+    
+    private func removeKeyboardObservers() {
+        NotificationCenter.default.removeObserver(
+            self,
+            name: UIResponder.keyboardWillShowNotification,
+            object: nil
+        )
+        NotificationCenter.default.removeObserver(
+            self,
+            name: UIResponder.keyboardWillHideNotification,
+            object: nil
+        )
+    }
+    
     // MARK: - Tab Views
 
     // General tab with app settings
     var generalTabView: some View {
-        ScrollView { // Added ScrollView for content that might exceed screen height
-            VStack(alignment: .leading, spacing: 20) { // Main container for general settings
-                // Target App Selection
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Send Text To")
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                // Add tag to draft toggle - horizontal layout
+                HStack(spacing: 16) {
+                    Text("Add Tag To Draft")
                         .font(.headline)
-                        .foregroundColor(Color.orangeTabbyText)
-
-                    CustomSegmentedPicker(selection: $targetApp, items: TargetApplication.allCases) { appType, isSelected in
-                        Text(appType.displayName)
-                            .font(isSelected ? .headline : .subheadline) // Example: different font weight for selected
-                    }
-                    // Removed old Picker and its modifiers
+                        .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+                    
+                    Spacer()
+                    
+                    Toggle("", isOn: $addDraftTagEnabled)
+                        .labelsHidden()
+                        .tint(Color.orangeTabbyAccent)
                 }
 
-                // Drafts-specific settings
-                if targetApp == .drafts {
-                    Divider().background(Color.orangeTabbyDark.opacity(0.3))
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Drafts Tag")
+                // Draft Tag - horizontal layout (only show if adding tags is enabled)
+                if addDraftTagEnabled {
+                    HStack(spacing: 16) {
+                        Text("Draft Tag")
                             .font(.headline)
-                            .foregroundColor(Color.orangeTabbyText)
-
-                        TextField("Add tag to draft", text: $draftsTag)
-                            .autocapitalization(.none)
+                            .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+                            .frame(width: 120, alignment: .leading)
+                        
+                        TextField("Tag name", text: $draftsTag)
                             .disableAutocorrection(true)
                             .focused($isDraftsTagFocused)
                             .onSubmit { isDraftsTagFocused = false }
+                            .id("draftsTag")
+                            .onChange(of: isDraftsTagFocused) { _, focused in
+                                if focused {
+                                    // Add a small delay to ensure keyboard is shown first
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                        withAnimation(.easeInOut(duration: 0.3)) {
+                                            proxy.scrollTo("draftsTag", anchor: .top)
+                                        }
+                                    }
+                                }
+                            }
                             .padding(12)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
@@ -384,146 +465,284 @@ struct SettingsView: View {
                                     )
                             )
                             .foregroundColor(Color.orangeTabbyText)
-                            // Placeholder text color customization can be complex, may need ZStack approach
                     }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
 
-                Divider().background(Color.orangeTabbyDark.opacity(0.3))
-
-                // Photo Album Section
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Photo Album")
+                // Save Photo Toggle - horizontal layout
+                HStack(spacing: 16) {
+                    Text("Save Photo")
                         .font(.headline)
-                        .foregroundColor(Color.orangeTabbyText)
+                        .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+                        .frame(width: 120, alignment: .leading)
+                    
+                    Spacer()
+                    
+                    Toggle("", isOn: $savePhotosEnabled)
+                        .labelsHidden()
+                        .tint(Color.orangeTabbyAccent)
+                }
 
-                    TextField("Save photo to Photos App album", text: $photoFolderName)
-                        .autocapitalization(.none)
-                        .disableAutocorrection(true)
-                        .focused($isPhotoFolderFocused)
-                        .onSubmit { isPhotoFolderFocused = false }
-                        .padding(12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.orangeTabbyLight.opacity(0.7))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(isPhotoFolderFocused ? Color.orangeTabbyAccent : Color.orangeTabbyDark.opacity(0.4), lineWidth: isPhotoFolderFocused ? 2 : 1)
-                                )
-                        )
-                        .foregroundColor(Color.orangeTabbyText)
+                // Photo Album - horizontal layout (only show if saving photos is enabled)
+                if savePhotosEnabled {
+                    HStack(spacing: 16) {
+                        Text("Photo Album")
+                            .font(.headline)
+                            .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+                            .frame(width: 120, alignment: .leading)
+                        
+                        TextField("Album name", text: $photoFolderName)
+                            .disableAutocorrection(true)
+                            .focused($isPhotoFolderFocused)
+                            .onSubmit { isPhotoFolderFocused = false }
+                            .id("photoFolder")
+                            .onChange(of: isPhotoFolderFocused) { _, focused in
+                                if focused {
+                                    // Add a small delay to ensure keyboard is shown first
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                        withAnimation(.easeInOut(duration: 0.3)) {
+                                            proxy.scrollTo("photoFolder", anchor: .top)
+                                        }
+                                    }
+                                }
+                            }
+                            .padding(12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color.orangeTabbyLight.opacity(0.7))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(isPhotoFolderFocused ? Color.orangeTabbyAccent : Color.orangeTabbyDark.opacity(0.4), lineWidth: isPhotoFolderFocused ? 2 : 1)
+                                    )
+                            )
+                            .foregroundColor(Color.orangeTabbyText)
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
-            .padding() // Add padding around the content of the panel
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.orangeTabbyDark.opacity(0.6)) // Panel background
-                    .overlay( // Panel border
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.orangeTabbyAccent.opacity(0.5), lineWidth: 1)
-                    )
-            )
-            .padding() // Add padding around the panel itself
+            .padding()
+            .padding(.bottom, keyboardHeight)
         }
+        .animation(.easeInOut(duration: 0.3), value: addDraftTagEnabled)
+        .animation(.easeInOut(duration: 0.3), value: savePhotosEnabled)
         .onTapGesture {
             dismissAllKeyboards()
+        }
         }
     }
 
     // AI tab with model selection and API settings
     var aiTabView: some View {
-        ScrollView { // Added ScrollView
-            VStack(alignment: .leading, spacing: 24) {
-                // AI Instruction Prompt
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("AI Instruction Prompt")
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 30) {
+                // AI Instruction Prompt - Always show for Gemini configuration
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Prompt")
                         .font(.headline)
                         .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+                    
                     TextEditor(text: $userPrompt)
-                        .frame(minHeight: 50, maxHeight: 80)
+                        .frame(minHeight: 100, maxHeight: 200)
                         .scrollContentBackground(.hidden)
-                        // .cardStyled() // cardStyled provides its own background, let the VStack handle the panel bg
                         .padding(10)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.orangeTabbyLight.opacity(0.7)))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(isPromptFocused ? Color.orangeTabbyAccent : Color.orangeTabbyDark.opacity(0.4), lineWidth: isPromptFocused ? 2: 1))
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.orangeTabbyLight.opacity(0.7))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(isPromptFocused ? Color.orangeTabbyAccent : Color.orangeTabbyDark.opacity(0.4), lineWidth: isPromptFocused ? 2 : 1)
+                                )
+                        )
                         .focused($isPromptFocused)
                         .onSubmit { isPromptFocused = false }
+                        .id("promptEditor")
+                        .onChange(of: isPromptFocused) { _, focused in
+                            if focused {
+                                // Add a small delay to ensure keyboard is shown first
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    withAnimation(.easeInOut(duration: 0.3)) {
+                                        proxy.scrollTo("promptEditor", anchor: .top)
+                                    }
+                                }
+                            }
+                        }
                         .foregroundColor(Color.orangeTabbyText)
                 }
-                .padding()
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.orangeTabbyDark.opacity(0.6))
-                        .stroke(Color.orangeTabbyAccent.opacity(0.5), lineWidth: 1)
-                )
 
-                // AI Settings
-                VStack(alignment: .leading, spacing: 20) {
-                    CustomSegmentedPicker(selection: $selectedTextExtractor, items: TextExtractorType.allCases) { serviceType, isSelected in
-                        Text(serviceType.rawValue)
-                             .font(isSelected ? .headline : .subheadline)
-                    }
-                    // Removed old Picker and its modifiers
-                    
-                    if selectedTextExtractor == .gemini {
-                        geminiSettingsSection // This section has its own styling for model cards, API fields
-                    } else if selectedTextExtractor == .vision {
-                        visionSettingsSection
-                    }
-                }
-                .padding()
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.orangeTabbyDark.opacity(0.6))
-                        .stroke(Color.orangeTabbyAccent.opacity(0.5), lineWidth: 1)
-                )
+                geminiSettingsSection(proxy: proxy) // Always show Gemini settings (API key, model, endpoint)
                 
-                Spacer()
+                // Conditional display for Vision if it's the active fallback
+                if currentTextExtractorType == .vision {
+                    HStack(spacing: 12) {
+                        Image(systemName: "eye.circle.fill")
+                            .font(.title2)
+                            .foregroundColor(Color.orangeTabbyAccent)
+                        
+                        Text("Using Apple Vision for offline text recognition")
+                            .font(.subheadline)
+                            .foregroundColor(Color.orangeTabbyText)
+                        
+                        Spacer()
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.orangeTabbyLight.opacity(0.4))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color.orangeTabbyAccent.opacity(0.3), lineWidth: 1)
+                            )
+                    )
+                    visionSettingsSection(proxy: proxy)
+                }
+                
+                Spacer(minLength: 40)
             }
-            .padding() // Padding for the content within ScrollView
+            .padding()
+            .padding(.bottom, keyboardHeight)
         }
-        .animation(.easeInOut, value: selectedTextExtractor)
+        .animation(.easeInOut, value: currentTextExtractorType) // Animate changes when Vision section appears/disappears
         .onTapGesture {
             dismissAllKeyboards()
+        }
         }
     }
 
     // About tab with app info
     var aboutTabView: some View {
-        VStack(spacing: 30) {
-            Text("Cat Scribe v1.0.0")
-                .font(.headline)
-                .foregroundColor(Color.orangeTabbyText)
+        ScrollView {
+            VStack(spacing: 30) {
+                // App Icon with 16:9 aspect ratio and rounded corners
+                Group {
+                    #if os(iOS)
+                    if let image = UIImage(named: "AboutIcon") {
+                        Image(uiImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(maxHeight: 120)
+                            .aspectRatio(16/9, contentMode: .fit)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                    } else {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(Color.orangeTabbyLight.opacity(0.8))
+                                .aspectRatio(16/9, contentMode: .fit)
+                                .frame(maxHeight: 120)
+                            
+                            Image(systemName: "doc.text.image")
+                                .font(.system(size: 40, weight: .light))
+                                .foregroundColor(Color.orangeTabbyAccent)
+                        }
+                    }
+                    #else
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color.orangeTabbyLight.opacity(0.8))
+                            .aspectRatio(16/9, contentMode: .fit)
+                            .frame(maxHeight: 120)
+                        
+                        Image(systemName: "doc.text.image")
+                            .font(.system(size: 40, weight: .light))
+                            .foregroundColor(Color.orangeTabbyAccent)
+                    }
+                    #endif
+                }
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color.orangeTabbyAccent.opacity(0.3), lineWidth: 1)
+                )
+                .shadow(color: Color.orangeTabbyDark.opacity(0.3), radius: 8, x: 0, y: 4)
+                .padding(.top, 20)
 
-            Text("Capture notebook pages and convert them to digital notes using AI.")
-                .font(.subheadline)
-                .multilineTextAlignment(.center)
-                .foregroundColor(Color.orangeTabbyText.opacity(0.7))
-
-            VStack(spacing: 16) {
-                Link(destination: URL(string: "https://example.com/help")!) {
-                    Label("Help & Documentation", systemImage: "questionmark.circle")
-                        .font(.subheadline)
-                        .foregroundColor(Color.orangeTabbyAccent)
+                // App Title and Version
+                VStack(spacing: 8) {
+                    Text("Cat Scribe")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                        .foregroundColor(Color.orangeTabbyText)
+                    
+                    Text("v1.0.0")
+                        .font(.title3)
+                        .fontWeight(.medium)
+                        .foregroundColor(Color.orangeTabbyText.opacity(0.8))
                 }
 
-                Link(destination: URL(string: "https://example.com/privacy")!) {
-                    Label("Privacy Policy", systemImage: "hand.raised")
-                        .font(.subheadline)
-                        .foregroundColor(Color.orangeTabbyAccent)
-                }
+                // Description
+                Text("Capture notebook pages and convert them to digital notes using AI.")
+                    .font(.body)
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+                    .padding(.horizontal, 20)
 
-                Link(destination: URL(string: "mailto:support@example.com")!) {
-                    Label("Contact Support", systemImage: "envelope")
-                        .font(.subheadline)
-                        .foregroundColor(Color.orangeTabbyAccent)
+                // Links Section
+                VStack(spacing: 20) {
+                    Link(destination: URL(string: "https://www.daviddegner.com/blog/cat-scribe/")!) {
+                        HStack {
+                            Image(systemName: "questionmark.circle.fill")
+                                .font(.title2)
+                                .foregroundColor(Color.orangeTabbyAccent)
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Help & Documentation")
+                                    .font(.headline)
+                                    .foregroundColor(Color.orangeTabbyText)
+                                
+                                Text("Get help and learn how to use the app")
+                                    .font(.caption)
+                                    .foregroundColor(Color.orangeTabbyText.opacity(0.6))
+                            }
+                            
+                            Spacer()
+                            
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(Color.orangeTabbyText.opacity(0.4))
+                        }
+                        .padding(16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.orangeTabbyLight.opacity(0.3))
+                        )
+                    }
+
+                    Link(destination: URL(string: "mailto:David@DavidDegner.com")!) {
+                        HStack {
+                            Image(systemName: "envelope.fill")
+                                .font(.title2)
+                                .foregroundColor(Color.orangeTabbyAccent)
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Contact Support")
+                                    .font(.headline)
+                                    .foregroundColor(Color.orangeTabbyText)
+                                
+                                Text("Get help with any issues")
+                                    .font(.caption)
+                                    .foregroundColor(Color.orangeTabbyText.opacity(0.6))
+                            }
+                            
+                            Spacer()
+                            
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(Color.orangeTabbyText.opacity(0.4))
+                        }
+                        .padding(16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.orangeTabbyLight.opacity(0.3))
+                        )
+                    }
                 }
+                .padding(.horizontal)
+
+                Spacer(minLength: 40)
             }
-            .padding(.top)
-
-            Spacer()
+            .padding(.horizontal)
+            .padding(.vertical)
         }
-        .padding(.horizontal)
-        .padding(.vertical)
         .onTapGesture {
             dismissAllKeyboards()
         }
@@ -532,24 +751,105 @@ struct SettingsView: View {
     // MARK: - Section Views
     
     @ViewBuilder
-    private var geminiSettingsSection: some View {
+    private func geminiSettingsSection(proxy: ScrollViewProxy) -> some View {
         // Model selection
         VStack(alignment: .leading, spacing: 12) {
             Text("AI Model")
                 .font(.headline)
                 .foregroundColor(Color.orangeTabbyText.opacity(0.7))
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(availableModels) { model in
-                        modelCard(model: model) // Uses updated modelCard, which uses CardBackgroundModifier
+            
+            // Show error if models refresh failed
+            if let error = modelsRefreshError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.red.opacity(0.1))
+                    )
+            }
+            
+            // Model picker with refresh button beside it
+            HStack(spacing: 12) {
+                // Replace ScrollView with Picker dropdown
+                Picker("Select AI Model", selection: $selectedModelId) {
+                    ForEach(displayedModels) { model in
+                        Text(model.displayName)
+                            .foregroundColor(Color.black)
+                            .tag(model.id)
                     }
                 }
+                .pickerStyle(MenuPickerStyle())
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.orangeTabbyLight.opacity(0.7))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.orangeTabbyDark.opacity(0.4), lineWidth: 1)
+                        )
+                )
+                .tint(Color.black)
+                
+                // Refresh button beside the dropdown
+                Button(action: refreshModels) {
+                    HStack(spacing: 4) {
+                        if isRefreshingModels {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                                .progressViewStyle(CircularProgressViewStyle(tint: Color.white))
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                    }
+                    .foregroundColor(isRefreshingModels || apiKey.isEmpty ? Color.orangeTabbyText.opacity(0.4) : Color.white)
+                }
+                .frame(width: 44, height: 46)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(isRefreshingModels || apiKey.isEmpty ? 
+                             Color.orangeTabbyText.opacity(0.2) : Color.orangeTabbyDark)
+                )
+                .disabled(isRefreshingModels || apiKey.isEmpty)
             }
+            
+            // Toggle to show all models or only recommended
+            HStack {
+                Spacer()
+                Button(action: { showAllModels.toggle() }) {
+                    Text(showAllModels ? "Show Recommended Only" : "Show All Models")
+                        .font(.caption)
+                        .foregroundColor(Color.orangeTabbyAccent)
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color.orangeTabbyLight.opacity(0.5))
+                        )
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            
             if selectedModelId == .custom {
                 TextField("Custom Model ID (e.g. gemini-custom-001)", text: $customModelName)
                     .disableAutocorrection(true)
                     .focused($isCustomModelFocused)
                     .onSubmit { isCustomModelFocused = false }
+                    .id("customModel")
+                    .onChange(of: isCustomModelFocused) { _, focused in
+                        if focused {
+                            // Add a small delay to ensure keyboard is shown first
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    proxy.scrollTo("customModel", anchor: .top)
+                                }
+                            }
+                        }
+                    }
                     // .cardStyled(isError: customModelName.isEmpty && selectedModelId == .custom) // Apply explicit styling for consistency
                     .padding(10)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Color.orangeTabbyLight.opacity(0.7)))
@@ -563,79 +863,103 @@ struct SettingsView: View {
             }
         }
         
-        Divider().background(Color.orangeTabbyDark.opacity(0.3))
-        
         // API Key
-        HStack(spacing: 12) {
-            SecureField(apiKeyPlaceholderText, text: $apiKey)
-                .textContentType(.password)
-                // .cardStyled(isError: apiKey.isEmpty)
-                .padding(10)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.orangeTabbyLight.opacity(0.7)))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(isApiKeyFocused ? Color.orangeTabbyAccent : (apiKey.isEmpty ? Color.red : Color.orangeTabbyDark.opacity(0.4)), lineWidth: isApiKeyFocused || apiKey.isEmpty ? 2:1 ))
-                .frame(minHeight: 36)
-                .layoutPriority(1)
-                .focused($isApiKeyFocused)
-                .onSubmit { isApiKeyFocused = false }
-                .onChange(of: isApiKeyFocused) { _, focused in // Corrected onChange usage
-                    if (!focused) { saveApiKey() }
+        VStack(alignment: .leading, spacing: 12) {
+            Text("API Key")
+                .font(.headline)
+                .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+            
+            HStack(spacing: 12) {
+                SecureField(apiKeyPlaceholderText, text: $apiKey)
+                    .textContentType(.password)
+                    // .cardStyled(isError: apiKey.isEmpty)
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.orangeTabbyLight.opacity(0.7)))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(isApiKeyFocused ? Color.orangeTabbyAccent : (apiKey.isEmpty ? Color.red : Color.orangeTabbyDark.opacity(0.4)), lineWidth: isApiKeyFocused || apiKey.isEmpty ? 2:1 ))
+                    .frame(minHeight: 36)
+                    .layoutPriority(1)
+                    .focused($isApiKeyFocused)
+                    .onSubmit { isApiKeyFocused = false }
+                    .id("apiKey")
+                    .onChange(of: isApiKeyFocused) { _, focused in
+                        if focused {
+                            // Add a small delay to ensure keyboard is shown first
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    proxy.scrollTo("apiKey", anchor: .top)
+                                }
+                            }
+                        } else { 
+                            saveApiKey() 
+                        }
+                    }
+                    .foregroundColor(Color.orangeTabbyText)
+                Button(action: { saveApiKey() }) {
+                    Image(systemName: "tray.and.arrow.down")
+                        .imageScale(.large)
+                        .foregroundColor((apiKey.isEmpty || !showSaveConfirmation) ? Color.orangeTabbyText.opacity(0.4) : Color.white)
                 }
-                .foregroundColor(Color.orangeTabbyText)
-            Button(action: { saveApiKey() }) {
-                Image(systemName: "tray.and.arrow.down")
-                    .imageScale(.large)
-                    .foregroundColor((apiKey.isEmpty || !showSaveConfirmation) ? Color.orangeTabbyText.opacity(0.4) : Color.white)
+                .frame(width: 44, height: 46) // Adjusted height to match TextField + padding
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill((apiKey.isEmpty || !showSaveConfirmation) ? 
+                             Color.orangeTabbyText.opacity(0.2) : Color.orangeTabbyDark)
+                )
+                .disabled(apiKey.isEmpty)
             }
-            .frame(width: 44, height: 46) // Adjusted height to match TextField + padding
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill((apiKey.isEmpty || !showSaveConfirmation) ? 
-                         Color.orangeTabbyText.opacity(0.2) : Color.orangeTabbyDark)
-            )
-            .disabled(apiKey.isEmpty)
         }
         
-        Divider().background(Color.orangeTabbyDark.opacity(0.3))
-        
         // API Endpoint URL and Test Connection
-        HStack(spacing: 12) {
-            TextField(apiUrlPlaceholderText, text: $apiEndpointUrlString)
-                .disableAutocorrection(true)
-                .focused($isApiEndpointFocused)
-                .onSubmit { isApiEndpointFocused = false }
-                // .cardStyled(isError: apiUrlHasError)
-                .padding(10)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color.orangeTabbyLight.opacity(0.7)))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(isApiEndpointFocused ? Color.orangeTabbyAccent : (apiUrlHasError ? Color.red : Color.orangeTabbyDark.opacity(0.4)), lineWidth: isApiEndpointFocused || apiUrlHasError ? 2:1 ))
-                .frame(minHeight: 36)
-                .layoutPriority(1)
-                .foregroundColor(Color.orangeTabbyText)
-            Button(action: { if connectionStatus != .testing { testConnection() } }) {
-                Image(systemName: "network")
-                    .imageScale(.large)
-                    .foregroundColor((apiEndpointUrlString.isEmpty || connectionStatus == .testing) ? 
-                                   Color.orangeTabbyText.opacity(0.4) : Color.white)
-                    .rotationEffect(connectionStatus == .testing ? .degrees(90) : .degrees(0))
+        VStack(alignment: .leading, spacing: 12) {
+            Text("API Endpoint")
+                .font(.headline)
+                .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+            
+            HStack(spacing: 12) {
+                TextField(apiUrlPlaceholderText, text: $apiEndpointUrlString)
+                    .disableAutocorrection(true)
+                    .focused($isApiEndpointFocused)
+                    .onSubmit { isApiEndpointFocused = false }
+                    .id("apiEndpoint")
+                    .onChange(of: isApiEndpointFocused) { _, focused in
+                        if focused {
+                            // Add a small delay to ensure keyboard is shown first
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    proxy.scrollTo("apiEndpoint", anchor: .top)
+                                }
+                            }
+                        }
+                    }
+                    // .cardStyled(isError: apiUrlHasError)
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.orangeTabbyLight.opacity(0.7)))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(isApiEndpointFocused ? Color.orangeTabbyAccent : (apiUrlHasError ? Color.red : Color.orangeTabbyDark.opacity(0.4)), lineWidth: isApiEndpointFocused || apiUrlHasError ? 2:1 ))
+                    .frame(minHeight: 36)
+                    .layoutPriority(1)
+                    .foregroundColor(Color.orangeTabbyText)
+                Button(action: { if connectionStatus != .testing { testConnection() } }) {
+                    Image(systemName: "network")
+                        .imageScale(.large)
+                        .foregroundColor((apiEndpointUrlString.isEmpty || connectionStatus == .testing) ? 
+                                       Color.orangeTabbyText.opacity(0.4) : Color.white)
+                        .rotationEffect(connectionStatus == .testing ? .degrees(90) : .degrees(0))
+                }
+                .frame(width: 44, height: 46) // Adjusted height
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill((apiEndpointUrlString.isEmpty || connectionStatus == .testing) ? 
+                             Color.orangeTabbyText.opacity(0.2) : Color.orangeTabbyDark)
+                )
+                .disabled(apiEndpointUrlString.isEmpty || connectionStatus == .testing)
             }
-            .frame(width: 44, height: 46) // Adjusted height
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill((apiEndpointUrlString.isEmpty || connectionStatus == .testing) ? 
-                         Color.orangeTabbyText.opacity(0.2) : Color.orangeTabbyDark)
-            )
-            .disabled(apiEndpointUrlString.isEmpty || connectionStatus == .testing)
         }
     }
     
     @ViewBuilder
-    private var visionSettingsSection: some View {
+    private func visionSettingsSection(proxy: ScrollViewProxy) -> some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("""
-                Uses Apple's on-device Vision framework. Works offline, no API key needed. \
-                Optimized for accurate text recognition with language correction enabled.
-                """)
-                .font(.caption)
-                .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+            // Description removed
         }
         .padding(.top, 8)
         .onAppear {
@@ -644,73 +968,8 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Helper Views
-
-    // Model card view
-    private func modelCard(model: ModelOption) -> some View {
-        let isSelected = selectedModelId == model.id
-
-        return VStack(alignment: .leading, spacing: 8) {
-            // Model name
-            Text(model.displayName)
-                .font(.headline)
-                .foregroundColor(isSelected ? Color.orangeTabbyText : Color.white)
-
-            // Rating bars (only show for non-custom models)
-            if model.id != .custom {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Speed")
-                            .font(.caption)
-                            .foregroundColor(isSelected ? Color.orangeTabbyAccent : Color.orangeTabbyLight.opacity(0.8))
-
-                        ratingBar(rating: model.speed, max: 5,
-                                  activeColor: isSelected ? Color.orangeTabbyAccent : Color.orangeTabbyLight.opacity(0.8),
-                                  inactiveColor: isSelected ? Color.orangeTabbyText.opacity(0.3) : Color.white.opacity(0.3))
-                    }
-
-                    HStack {
-                        Text("Quality")
-                            .font(.caption)
-                            .foregroundColor(isSelected ? Color.orangeTabbyAccent : Color.orangeTabbyLight.opacity(0.8))
-
-                        ratingBar(rating: model.quality, max: 5,
-                                  activeColor: isSelected ? Color.orangeTabbyAccent : Color.orangeTabbyLight.opacity(0.8),
-                                  inactiveColor: isSelected ? Color.orangeTabbyText.opacity(0.3) : Color.white.opacity(0.3))
-                    }
-                }
-            }
-        }
-        .padding(12)
-        .frame(width: 220, height: 90)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(isSelected ? Color.orangeTabbyLight.opacity(0.9) : Color.orangeTabbyDark.opacity(0.8))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(isSelected ? Color.orangeTabbyAccent : Color.orangeTabbyAccent.opacity(0.5), lineWidth: isSelected ? 2 : 1)
-        )
-        .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                selectedModelId = model.id
-            }
-        }
-    }
-
-    // Rating bar helper
-    private func ratingBar(rating: Int, max: Int, activeColor: Color, inactiveColor: Color) -> some View {
-        HStack(spacing: 2) {
-            ForEach(1...max, id: \.self) { index in
-                Circle()
-                    .fill(index <= rating ? activeColor : inactiveColor) // Use parameterized colors
-                    .frame(width: 6, height: 6)
-            }
-        }
-    }
-
     // MARK: - Helper Functions
-    
+
     // Dismiss all keyboards
     private func dismissAllKeyboards() {
         isPromptFocused = false
@@ -753,29 +1012,23 @@ struct SettingsView: View {
         connectionStatus = .testing
         connectionStatusMessage = "Connecting..."
 
-        // --- Simulate API Call --- 
-        // In a real app, you would make an actual network request here
-        // using the apiEndpointUrlString and potentially the apiKey.
-        let isValidEndpoint = URL(string: apiEndpointUrlString) != nil // Basic URL validation
-        let simulateSuccess = isValidEndpoint && !apiKey.isEmpty // Simulate success if URL is valid and key exists
+        Task {
+            let success = await GeminiService.warmUpConnection()
+            DispatchQueue.main.async {
+                if success {
+                    connectionStatus = .success
+                    connectionStatusMessage = "Connection successful!"
+                } else {
+                    connectionStatus = .failure
+                    connectionStatusMessage = apiKey.isEmpty ? "Connection failed: API Key missing." : "Connection failed: Invalid endpoint or key."
+                }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { // Simulate network delay
-            if simulateSuccess {
-                // Simulate a successful connection
-                connectionStatus = .success
-                connectionStatusMessage = "Connection successful!"
-            } else {
-                // Simulate a failed connection
-                connectionStatus = .failure
-                connectionStatusMessage = apiKey.isEmpty ? "Connection failed: API Key missing." : "Connection failed: Invalid endpoint or key."
-            }
-
-            // Optional: Reset status after a few seconds
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
-                if connectionStatus != .testing { // Don't reset if another test started
-                   connectionStatus = .idle
-                   connectionStatusMessage = ""
-                   // Update status indicator colors if needed based on new scheme, e.g., for idle/success messages
+                // Optional: Reset status after a few seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                    if connectionStatus != .testing { // Don't reset if another test started
+                        connectionStatus = .idle
+                        connectionStatusMessage = ""
+                    }
                 }
             }
         }
@@ -784,9 +1037,9 @@ struct SettingsView: View {
     // Reset settings to defaults
     private func resetToDefaults() {
         // Also reset the text extractor service
-        selectedTextExtractor = .gemini
+        // selectedTextExtractor = .gemini // Removed as it's now dynamic
 
-        selectedModelId = .geminiFlash25Preview
+        selectedModelId = .geminiFlash25
         customModelName = ""
         userPrompt = """
             Output the text from the image as text. Start immediately with the first word. \
@@ -795,7 +1048,6 @@ struct SettingsView: View {
         apiEndpointUrlString = "https://generativelanguage.googleapis.com/v1beta/models/"
         draftsTag = "notebook"
         photoFolderName = "notebook" // Updated from savePhotosToAlbum
-        targetApp = .drafts
         // Reset Vision settings
         visionRecognitionLevel = .accurate
         visionUsesLanguageCorrection = true
@@ -816,8 +1068,44 @@ struct SettingsView: View {
             apiKeyStatusMessage = "API Key loaded."
         }
     }
+    
+    // Function to initialize available models
+    private func initializeModels() {
+        // Load cached models
+        availableModels = modelService.loadCachedModels()
+    }
+    
+    // Function to refresh models from API
+    private func refreshModels() {
+        guard !apiKey.isEmpty else {
+            modelsRefreshError = "API key is required to refresh models"
+            return
+        }
+        
+        isRefreshingModels = true
+        modelsRefreshError = nil
+        
+        Task {
+            do {
+                let models = try await modelService.fetchAvailableModels()
+                await MainActor.run {
+                    self.availableModels = models
+                    self.isRefreshingModels = false
+                    print("Successfully refreshed \(models.count) models")
+                }
+            } catch {
+                await MainActor.run {
+                    self.modelsRefreshError = error.localizedDescription
+                    self.isRefreshingModels = false
+                    print("Failed to refresh models: \(error)")
+                }
+            }
+        }
+    }
+
 }
 
 #Preview {
     SettingsView()
 }
+

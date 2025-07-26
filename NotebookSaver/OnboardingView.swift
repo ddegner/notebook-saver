@@ -1,210 +1,250 @@
 import SwiftUI
+import Foundation
 
 struct OnboardingView: View {
-    @AppStorage("ocrEngine") private var ocrEngine: String = "vision" // Default to vision
+    @AppStorage("textExtractorService") private var textExtractorService: String = TextExtractorType.vision.rawValue // Default to vision (Local)
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var apiKey = ""
     @State private var showSaveConfirmation = false
     @State private var apiKeyStatusMessage = ""
-    @State private var showingApiKeyEntry = false // State to control API key section visibility
     @Binding var isOnboarding: Bool // This binding controls the sheet presentation
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 30) {
-                // Feature Explanation & Choice Section
-                ocrChoiceSection
-                    .padding(.horizontal)
-                    .padding(.top, 40)
-
-                // Conditional API Key Entry Section
-                if showingApiKeyEntry {
-                    geminiApiKeySection
-                        .padding()
-                        .background(
-                            // Use adaptive material background
-                            .thinMaterial,
-                            in: RoundedRectangle(cornerRadius: 12)
-                        )
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 32) {
+                    // Welcome Header
+                    welcomeHeader
+                    
+                    // API Key Setup Section
+                    apiKeySetupSection
                         .padding(.horizontal)
-                        .transition(.opacity.combined(with: .scale)) // Add animation
+
+                    // Setup Later Option
+                    setupLaterSection
+                        .padding(.horizontal)
+
+                    Spacer(minLength: 30)
                 }
-
-                Spacer() // Pushes content up
+                .padding(.vertical, 30)
             }
-            .padding(.vertical)
-        }
-
-        // Dismiss button (only shown before API key entry is visible)
-        if !showingApiKeyEntry {
-             Button("Decide Later (Use Apple Vision)") {
-                  setDefaultAndDismiss()
-             }
-             .padding()
-             .font(.caption)
-             .foregroundColor(.secondary)
+            .background(
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color.orange.opacity(0.1),
+                        Color.orange.opacity(0.05)
+                    ]),
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(action: setupLaterWithAppleVision) {
+                        Image(systemName: "xmark")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
         }
     }
 
     // MARK: - View Components
 
-    private var ocrChoiceSection: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            // Update title
-            Text("Choose AI")
-                .font(.largeTitle) // Make it more prominent
-                .fontWeight(.bold)
-                .padding(.bottom, 10)
-                .frame(maxWidth: .infinity, alignment: .center) // Center align
-
-            // Apple Vision Option
-            engineOption(
-                title: "Apple Vision", // Simplified title
-                description: "Processes images on device, faster but less accurate",
-                action: selectAppleVision
-            )
-
-            Divider()
-
-            // Gemini Option
-            engineOption(
-                title: "Google Gemini", // Simplified title
-                description: "Uses Google's" +
-                    " cloud AI for higher accuracy with handwriting, but requires a free API key.",
-                action: {
-                    withAnimation { // Animate the appearance
-                         showingApiKeyEntry = true
-                    }
-                }
-            )
+    private var welcomeHeader: some View {
+        VStack(spacing: 20) {
+            Text("Connect to Gemini AI for best results")
+                .font(.title2)
+                .fontWeight(.medium)
+                .foregroundColor(.primary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
         }
-        .padding()
-        // Use adaptive material background
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 
-    private func engineOption(title: String, description: String, action: @escaping () -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.headline)
-            Text(description)
-                .font(.caption)
-                .foregroundColor(.secondary)
-            Button("Choose \(title)") {
-                action()
+    private var headerView: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "key.fill")
+                    .foregroundColor(.orange)
+                    .font(.title2)
+                Text("Get Gemini API Key")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.primary)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small) // Smaller button
         }
     }
-
-    private var geminiApiKeySection: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Enter Your Gemini API Key")
-                .font(.title3)
-                .fontWeight(.semibold)
-
-            // API Key Input
+    
+    private var stepOneView: some View {
+        Link(destination: URL(string: "https://aistudio.google.com/apikey")!) {
+            HStack {
+                Text("1")
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                    .frame(width: 24, height: 24)
+                    .background(
+                        Circle()
+                            .fill(Color.orange)
+                    )
+                
+                Text("Open")
+                    .font(.subheadline)
+                
+                Text("aistudio.google.com")
+                    .font(.subheadline)
+                    .foregroundColor(.blue)
+                    .underline()
+                
+                Image(systemName: "arrow.up.right")
+                    .font(.caption)
+                    .foregroundColor(.blue)
+            }
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+    
+    private var apiKeyInputView: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("4")
+                .font(.caption)
+                .fontWeight(.bold)
+                .foregroundColor(.white)
+                .frame(width: 24, height: 24)
+                .background(
+                    Circle()
+                        .fill(Color.orange)
+                )
+            
             VStack(alignment: .leading, spacing: 8) {
-                 Text("Your Gemini API Key:")
-                     .font(.subheadline).bold()
-                 SecureField("Paste your API key here", text: $apiKey)
-                     .textContentType(.password)
-                     .disableAutocorrection(true)
-                     .padding(10)
-                     .background(
-                         // Use a simple background or another material
-                         Color.gray.opacity(0.1), // Example: light gray
-                         in: RoundedRectangle(cornerRadius: 8)
-                     )
-                     .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-                     )
-
-                // Status message
+                SecureField("Paste key here", text: $apiKey)
+                    .textContentType(.password)
+                    .disableAutocorrection(true)
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.white.opacity(0.8))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(apiKey.isEmpty ? Color.gray.opacity(0.3) : Color.orange.opacity(0.5), lineWidth: 1)
+                    )
+                
                 if !apiKeyStatusMessage.isEmpty {
                     HStack(spacing: 6) {
                         Image(systemName: showSaveConfirmation ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                             .foregroundColor(showSaveConfirmation ? .green : .red)
-
+                        
                         Text(apiKeyStatusMessage)
                             .font(.caption)
                             .foregroundColor(showSaveConfirmation ? .green : .red)
                     }
                 }
             }
-
-            // Instructions to get an API key (Summarized)
-            VStack(alignment: .leading, spacing: 12) {
-                Text("How to get your free API key:")
-                    .font(.headline)
-
-                instructionStep(number: "1", text: "Go to **Google AI Studio**")
-                instructionStep(number: "2", text: "Sign in with your Google account")
-                instructionStep(number: "3", text: "Click **Create API key**")
-                instructionStep(number: "4", text: "Copy the generated key")
-                instructionStep(number: "5", text: "Paste it in the field above")
-
-                Link(destination: URL(string: "https://aistudio.google.com/apikey")!) {
-                    HStack {
-                        Text("Get your API key from Google AI Studio")
-                        Image(systemName: "arrow.up.right.square")
-                    }
-                    .font(.caption)
-                    .fontWeight(.medium)
-                }
-                .padding(.top, 4)
-                 Text("*Keep your key secure like a password.*")
-                     .font(.caption2)
-                     .foregroundColor(.secondary)
-                     .padding(.top, 2)
-            }
-            .padding(.top, 8)
-
-            Button(action: saveAPIKeyAndFinish) {
-                 Text("Save Key & Finish Setup")
-                     .font(.headline)
-                     .fontWeight(.semibold)
-                     .frame(maxWidth: .infinity)
-                     .padding()
-                     .background(
-                         RoundedRectangle(cornerRadius: 10)
-                             .fill(apiKey.isEmpty ? Color.gray.opacity(0.3) : Color.accentColor)
-                     )
-                     .foregroundColor(apiKey.isEmpty ? .gray : .white)
-             }
-             .disabled(apiKey.isEmpty)
         }
+    }
+    
+    private var saveButtonView: some View {
+        Button(action: saveAPIKeyAndFinish) {
+            HStack {
+                if showSaveConfirmation {
+                    Image(systemName: "checkmark")
+                }
+                Text(showSaveConfirmation ? "Setup Complete! 🎉" : "Save")
+            }
+            .font(.headline)
+            .fontWeight(.semibold)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .padding(.horizontal, 20)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(apiKey.isEmpty ? Color.gray.opacity(0.3) : Color.black)
+            )
+            .foregroundColor(apiKey.isEmpty ? .gray : .white)
+        }
+        .disabled(apiKey.isEmpty)
+    }
+
+    private var apiKeySetupSection: some View {
+        VStack(alignment: .leading, spacing: 28) {
+            headerView
+            
+            VStack(alignment: .leading, spacing: 20) {
+                stepOneView
+                instructionStep(number: "2", text: "Click **\"Get API key\"** in the left menu")
+                instructionStep(number: "3", text: "Click **\"Create API key in new project\"**")
+                apiKeyInputView
+            }
+            
+            saveButtonView
+        }
+        .padding(24)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.orange.opacity(0.1))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+        )
+    }
+
+    private var setupLaterSection: some View {
+        VStack(spacing: 16) {
+            Button("Use Apple Vision") {
+                setupLaterWithAppleVision()
+            }
+            .font(.headline)
+            .fontWeight(.semibold)
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .padding(.horizontal, 20)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.gray)
+            )
+            .overlay(
+                HStack {
+                    Image(systemName: "apple.logo")
+                        .font(.title2)
+                        .fontWeight(.medium)
+                    Spacer()
+                }
+                .padding(.leading, 20)
+                .foregroundColor(.white)
+            )
+        }
+        .padding(.vertical, 20)
     }
 
     // MARK: - Helper Views
 
     private func instructionStep(number: String, text: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: 12) {
             Text(number)
                 .font(.caption)
                 .fontWeight(.bold)
                 .foregroundColor(.white)
-                .frame(width: 20, height: 20)
-                .background(Circle().fill(Color.accentColor))
+                .frame(width: 24, height: 24)
+                .background(
+                    Circle()
+                        .fill(Color.orange)
+                )
 
             Text(.init(text)) // Use Markdown initialiser for bold text
-                .font(.caption)
-                .foregroundColor(.secondary)
+                .font(.subheadline)
+                .foregroundColor(.primary)
+                .fixedSize(horizontal: false, vertical: true)
 
             Spacer()
         }
     }
 
     // MARK: - Actions
-
-    private func selectAppleVision() {
-        print("Apple Vision Selected")
-        ocrEngine = "vision"
-        hasCompletedOnboarding = true
-        isOnboarding = false // Dismiss the sheet
-    }
 
     private func saveAPIKeyAndFinish() {
         guard !apiKey.isEmpty else {
@@ -213,18 +253,18 @@ struct OnboardingView: View {
             return
         }
 
-        // Attempt to save the key
+        // Use the proper KeychainService
         let success = KeychainService.saveAPIKey(apiKey)
 
         if success {
             print("Gemini API Key Saved")
             apiKeyStatusMessage = "API Key saved successfully!"
             showSaveConfirmation = true
-            ocrEngine = "gemini" // Set engine to Gemini
+            textExtractorService = TextExtractorType.gemini.rawValue // Set to Cloud (Gemini)
             hasCompletedOnboarding = true
 
             // Dismiss after a short delay to show confirmation
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                 isOnboarding = false
             }
         } else {
@@ -232,16 +272,13 @@ struct OnboardingView: View {
             showSaveConfirmation = false
         }
     }
-
-    // setDefaultAndDismiss remains the same
-    private func setDefaultAndDismiss() {
-         if !hasCompletedOnboarding { // Only set default if they haven't finished
-             print("Onboarding dismissed/closed, defaulting to Apple Vision")
-             ocrEngine = "vision"
-             hasCompletedOnboarding = true
-         }
-         isOnboarding = false // Dismiss the sheet
-     }
+    
+    private func setupLaterWithAppleVision() {
+        print("Setup later selected, using Apple Vision")
+        textExtractorService = TextExtractorType.vision.rawValue // Set to Local (Vision)
+        hasCompletedOnboarding = true
+        isOnboarding = false // Dismiss the sheet
+    }
 }
 
 #Preview {

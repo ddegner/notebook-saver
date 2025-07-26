@@ -1,7 +1,253 @@
 import Foundation
-// Removed SwiftUI import as direct AppStorage access isn't needed here
+import SwiftUI // For @Published
 import UIKit // For UIImage
 import CoreImage // Import Core Image
+
+// MARK: - Model Management Service
+
+class GeminiModelService: ObservableObject {
+    static let shared = GeminiModelService()
+    private init() {}
+    
+    // Storage keys
+    private enum StorageKeys {
+        static let cachedModels = "cachedGeminiModels"
+        static let hasInitiallyFetchedModels = "hasInitiallyFetchedModels"
+    }
+    
+    // Cached models from API
+    @Published var availableModels: [ModelOption] = []
+    
+    // Check if we should fetch models (first launch only)
+    var shouldFetchModels: Bool {
+        let hasInitiallyFetched = UserDefaults.standard.bool(forKey: StorageKeys.hasInitiallyFetchedModels)
+        return !hasInitiallyFetched
+    }
+    
+    // Fetch available models from Gemini API
+    func fetchAvailableModels() async throws -> [ModelOption] {
+        guard let apiKey = KeychainService.loadAPIKey(), !apiKey.isEmpty else {
+            throw APIError.missingApiKey
+        }
+        
+        let defaults = UserDefaults.standard
+        let endpointString = defaults.string(forKey: "apiEndpointUrlString") ?? "https://generativelanguage.googleapis.com/v1beta/models/"
+        guard let baseUrl = URL(string: endpointString) else {
+            throw APIError.invalidApiEndpoint(endpointString)
+        }
+        
+        // Handle the URL construction properly
+        let modelsUrl: URL
+        if endpointString.hasSuffix("/models/") || endpointString.hasSuffix("/models") {
+            // If the URL already points to the models endpoint, use it directly
+            modelsUrl = baseUrl
+        } else {
+            // Otherwise, append "models" to the base URL
+            modelsUrl = baseUrl.appendingPathComponent("models")
+        }
+        
+        var urlComponents = URLComponents(url: modelsUrl, resolvingAgainstBaseURL: false)
+        urlComponents?.queryItems = [URLQueryItem(name: "key", value: apiKey)]
+        
+        guard let finalUrl = urlComponents?.url else {
+            throw APIError.invalidApiEndpoint("Failed to construct models URL")
+        }
+        
+        var request = URLRequest(url: finalUrl)
+        request.httpMethod = "GET"
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.networkError(URLError(.badServerResponse))
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.unknownError(httpResponse.statusCode)
+        }
+        
+        let apiResponse = try JSONDecoder().decode(GeminiModelsResponse.self, from: data)
+        let models = convertToModelOptions(apiResponse.models ?? [])
+        
+        // Cache the results
+        await cacheModels(models)
+        
+        return models
+    }
+    
+    // Convert API response to ModelOption format
+    private func convertToModelOptions(_ apiModels: [GeminiModelInfo]) -> [ModelOption] {
+        var models: [ModelOption] = []
+        
+        for apiModel in apiModels {
+            // Extract model name from the full path (e.g., "models/gemini-2.5-flash" -> "gemini-2.5-flash")
+            let modelName = apiModel.name.replacingOccurrences(of: "models/", with: "")
+            
+            // Skip certain models (embedding, etc.)
+            if modelName.contains("embedding") || modelName.contains("imagen") || modelName.contains("veo") {
+                continue
+            }
+            
+            // Try to match with existing enum cases, or create as custom
+            let modelId: AIModelIdentifier
+            let displayName: String
+            let speed: Int
+            let quality: Int
+            
+            switch modelName {
+            case "gemini-2.5-flash":
+                modelId = .geminiFlash25
+                displayName = "Gemini 2.5 Flash"
+                speed = 5
+                quality = 5
+            case "gemini-2.5-pro":
+                modelId = .geminiPro25
+                displayName = "Gemini 2.5 Pro"
+                speed = 3
+                quality = 5
+            case "gemini-2.0-flash":
+                modelId = .geminiFlash20
+                displayName = "Gemini 2.0 Flash"
+                speed = 4
+                quality = 4
+            case "gemini-1.5-pro":
+                modelId = .geminiPro15
+                displayName = "Gemini 1.5 Pro"
+                speed = 3
+                quality = 5
+            case "gemini-1.5-flash":
+                modelId = .geminiFlash15
+                displayName = "Gemini 1.5 Flash"
+                speed = 5
+                quality = 3
+            case "gemini-1.5-flash-8b":
+                modelId = .geminiFlash15B
+                displayName = "Gemini 1.5 Flash 8B"
+                speed = 4
+                quality = 4
+            default:
+                // For unknown models, create a custom entry
+                modelId = .custom
+                displayName = modelName.capitalized.replacingOccurrences(of: "-", with: " ")
+                speed = 3
+                quality = 3
+            }
+            
+            models.append(ModelOption(
+                id: modelId,
+                displayName: displayName,
+                speed: speed,
+                quality: quality
+            ))
+        }
+        
+        // Always add custom option at the end
+        models.append(ModelOption(
+            id: .custom,
+            displayName: "Custom Model",
+            speed: 3,
+            quality: 3
+        ))
+        
+        return models
+    }
+    
+    // Cache models to UserDefaults
+    @MainActor
+    private func cacheModels(_ models: [ModelOption]) async {
+        do {
+            let data = try JSONEncoder().encode(models)
+            UserDefaults.standard.set(data, forKey: StorageKeys.cachedModels)
+            UserDefaults.standard.set(true, forKey: StorageKeys.hasInitiallyFetchedModels)
+            
+            // Update published property
+            self.availableModels = models
+        } catch {
+            print("Failed to cache models: \(error)")
+        }
+    }
+    
+    // Load cached models
+    func loadCachedModels() -> [ModelOption] {
+        guard let data = UserDefaults.standard.data(forKey: StorageKeys.cachedModels) else {
+            return getDefaultModels()
+        }
+        
+        do {
+            let models = try JSONDecoder().decode([ModelOption].self, from: data)
+            self.availableModels = models
+            return models
+        } catch {
+            print("Failed to decode cached models: \(error)")
+            return getDefaultModels()
+        }
+    }
+    
+    // Fallback default models
+    private func getDefaultModels() -> [ModelOption] {
+        return [
+            ModelOption(id: .geminiFlash25, displayName: "Gemini 2.5 Flash", speed: 5, quality: 5),
+            ModelOption(id: .geminiPro25, displayName: "Gemini 2.5 Pro", speed: 3, quality: 5),
+            ModelOption(id: .geminiFlash20, displayName: "Gemini 2.0 Flash", speed: 4, quality: 4),
+            ModelOption(id: .geminiPro15, displayName: "Gemini 1.5 Pro", speed: 3, quality: 5),
+            ModelOption(id: .geminiFlash15, displayName: "Gemini 1.5 Flash", speed: 5, quality: 3),
+            ModelOption(id: .geminiFlash15B, displayName: "Gemini 1.5 Flash 8B", speed: 4, quality: 4),
+            ModelOption(id: .custom, displayName: "Custom Model", speed: 3, quality: 3)
+        ]
+    }
+}
+
+// MARK: - API Response Structures
+
+struct GeminiModelsResponse: Codable {
+    let models: [GeminiModelInfo]?
+}
+
+struct GeminiModelInfo: Codable {
+    let name: String
+    let displayName: String?
+    let description: String?
+    let version: String?
+    let inputTokenLimit: Int?
+    let outputTokenLimit: Int?
+    let supportedGenerationMethods: [String]?
+    
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case displayName = "display_name"
+        case description
+        case version
+        case inputTokenLimit = "input_token_limit"
+        case outputTokenLimit = "output_token_limit"
+        case supportedGenerationMethods = "supported_generation_methods"
+    }
+}
+
+// Make ModelOption Codable for caching
+extension ModelOption: Codable {
+    enum CodingKeys: String, CodingKey {
+        case id, displayName, speed, quality
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let idString = try container.decode(String.self, forKey: .id)
+        self.id = AIModelIdentifier(rawValue: idString) ?? .custom
+        self.displayName = try container.decode(String.self, forKey: .displayName)
+        self.speed = try container.decode(Int.self, forKey: .speed)
+        self.quality = try container.decode(Int.self, forKey: .quality)
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id.rawValue, forKey: .id)
+        try container.encode(displayName, forKey: .displayName)
+        try container.encode(speed, forKey: .speed)
+        try container.encode(quality, forKey: .quality)
+    }
+}
+
+// MARK: - Existing GeminiService class continues below...
 class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
     // Track if connection has been verified to avoid redundant warm-ups
     private static var connectionVerified = false
@@ -16,7 +262,7 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
     }
 
     // Defaults
-    private let defaultModelId = "gemini-2.5-flash-preview-04-17" // Default model if nothing is set
+    private let defaultModelId = "gemini-2.5-flash" // Default model if nothing is set
     private let defaultPrompt = "Extract text accurately from this image of a notebook page."
     private static let defaultApiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/"
     private let defaultDraftsTag = "notebook"
@@ -58,11 +304,11 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
 
     // MARK: - Connection Warming
 
-    public static func warmUpConnection() async {
+    public static func warmUpConnection() async -> Bool {
         // Skip if already verified
         if connectionVerified {
             print("GeminiService: Connection already verified, skipping warm-up")
-            return
+            return true
         }
         
         print("GeminiService: Attempting to warm up connection...")
@@ -72,12 +318,12 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
         let endpointString = defaults.string(forKey: StorageKeys.apiEndpoint) ?? defaultApiEndpoint
         guard let apiBaseUrl = URL(string: endpointString) else {
             print("GeminiService (WarmUp): Invalid API Endpoint URL configured: \(endpointString)")
-            return
+            return false
         }
 
         guard let key = apiKey, !key.isEmpty else {
             print("GeminiService (WarmUp): API Key is missing. Skipping connection warm-up.")
-            return
+            return false
         }
 
         // Use a lightweight endpoint, like listing models
@@ -90,7 +336,7 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
 
         guard let finalUrl = urlComponents?.url else {
             print("GeminiService (WarmUp): Failed to construct URL with API key.")
-            return
+            return false
         }
         request.url = finalUrl
 
@@ -98,7 +344,7 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
                 print("GeminiService (WarmUp): Invalid response from server.")
-                return
+                return false
             }
 
             if (200...299).contains(httpResponse.statusCode) {
@@ -111,11 +357,14 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
                 // } else {
                 //     print("GeminiService (WarmUp): Connection successful, but response format unexpected.")
                 // }
+                return true
             } else {
                 print("GeminiService (WarmUp): Connection attempt failed with status code: \(httpResponse.statusCode). Response: \(String(data: data, encoding: .utf8) ?? "No response body")")
+                return false
             }
         } catch {
             print("GeminiService (WarmUp): Network error during connection warm-up: \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -290,6 +539,9 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
                  throw APIError.badRequest(errorDetail)
             case 401, 403:
                  throw APIError.authenticationError
+            case 404:
+                // Model not found - suggest refreshing models list
+                throw APIError.modelNotFound(model)
              case 429:
                  throw APIError.rateLimitExceeded
             case 503:
@@ -376,6 +628,7 @@ enum APIError: LocalizedError {
     case missingApiKey
     case invalidApiEndpoint(String)
     case missingModelConfiguration
+    case modelNotFound(String) // New error for 404s
     case imageProcessingFailed
     case requestEncodingFailed(Error)
     case networkError(Error)
@@ -397,6 +650,8 @@ enum APIError: LocalizedError {
             return "Invalid API Endpoint URL configured: \(endpoint)"
         case .missingModelConfiguration:
             return "No valid model configured. Please select or enter a model in Settings."
+        case .modelNotFound(let modelName):
+            return "Model '\(modelName)' not found. The model may have been deprecated or renamed. Try refreshing the models list in Settings."
         case .imageProcessingFailed:
             return "Failed to process the image for the API."
         case .requestEncodingFailed(let error):

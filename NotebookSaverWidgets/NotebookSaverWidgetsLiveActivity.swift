@@ -11,64 +11,62 @@ import SwiftUI
 
 struct NotebookSaverWidgetsAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
-        // Dynamic stateful properties about your activity go here!
-        var emoji: String
+        // No dynamic properties needed for this basic activity
     }
 
-    // Fixed non-changing properties about your activity go here!
-    var name: String
+    // No fixed properties needed for this basic activity
 }
 
 struct NotebookSaverWidgetsLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: NotebookSaverWidgetsAttributes.self) { context in
-            // Lock screen/banner UI goes here
+            // Lock screen/banner UI
             VStack {
-                Text("Hello \(context.state.emoji)")
+                Text("Cat Scribe Active")
             }
-            .activityBackgroundTint(Color.cyan)
-            .activitySystemActionForegroundColor(Color.black)
+            .activityBackgroundTint(Color("WidgetBackground"))
+            .activitySystemActionForegroundColor(Color.primary)
 
         } dynamicIsland: { context in
             DynamicIsland {
-                // Expanded UI goes here.  Compose the expanded UI through
-                // various regions, like leading/trailing/center/bottom
                 DynamicIslandExpandedRegion(.leading) {
-                    Text("Leading")
+                    // Example: Leading icon or info
+                    // Image(systemName: "timer")
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Text("Trailing")
+                    // Example: Trailing status or info
+                    // Text("Status")
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    Text("Bottom \(context.state.emoji)")
-                    // more content
+                    Text("Cat Scribe is active") // App-specific and non-placeholder
+                    // Optionally add more content like a button to open the app
+                    // Button("Open App") { /* Intent to open app */ }
                 }
             } compactLeading: {
-                Text("L")
+                Image(systemName: "cat.fill") // App icon
             } compactTrailing: {
-                Text("T \(context.state.emoji)")
+                Text("Active") // Concise status
             } minimal: {
-                Text(context.state.emoji)
+                Image(systemName: "cat.fill") // App icon, non-placeholder
             }
-            .widgetURL(URL(string: "http://www.apple.com"))
-            .keylineTint(Color.red)
+            // No widgetURL or keylineTint needed for this basic configuration
         }
     }
 }
 
 extension NotebookSaverWidgetsAttributes {
     fileprivate static var preview: NotebookSaverWidgetsAttributes {
-        NotebookSaverWidgetsAttributes(name: "World")
+        NotebookSaverWidgetsAttributes() // Updated preview
     }
 }
 
 extension NotebookSaverWidgetsAttributes.ContentState {
     fileprivate static var smiley: NotebookSaverWidgetsAttributes.ContentState {
-        NotebookSaverWidgetsAttributes.ContentState(emoji: "😀")
+        NotebookSaverWidgetsAttributes.ContentState() // Updated preview
      }
 
      fileprivate static var starEyes: NotebookSaverWidgetsAttributes.ContentState {
-         NotebookSaverWidgetsAttributes.ContentState(emoji: "🤩")
+         NotebookSaverWidgetsAttributes.ContentState() // Updated preview
      }
 }
 

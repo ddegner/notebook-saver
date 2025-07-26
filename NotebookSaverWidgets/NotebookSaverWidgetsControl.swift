@@ -9,46 +9,43 @@ import AppIntents
 import SwiftUI
 import WidgetKit
 
+// Intent to open the main application
+struct OpenCatScribeIntent: AppIntent {
+    static var title: LocalizedStringResource = "Open Cat Scribe"
+    static var openAppWhenRun: Bool = true // Indicates the app should open
+
+    func perform() async throws -> some IntentResult {
+        // The system handles opening the app when openAppWhenRun is true.
+        return .result()
+    }
+}
+
 struct NotebookSaverWidgetsControl: ControlWidget {
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(
-            kind: "com.daviddegner.NotebookSaver.NotebookSaverWidgets",
+            kind: "com.daviddegner.NotebookSaver.OpenCatScribeControlWidget", // Updated kind
             provider: Provider()
-        ) { value in
-            ControlWidgetToggle(
-                "Start Timer",
-                isOn: value,
-                action: StartTimerIntent()
-            ) { isRunning in
-                Label(isRunning ? "On" : "Off", systemImage: "timer")
+        ) { _ in // The value from the provider is not used by the button
+            ControlWidgetButton(action: OpenCatScribeIntent()) {
+                Label("Open Cat Scribe", systemImage: "cat.fill") // Using app-relevant icon
             }
         }
-        .displayName("Timer")
-        .description("A an example control that runs a timer.")
+        .displayName("Open Cat Scribe") // Updated display name
+        .description("Quickly open the Cat Scribe app.") // Updated description
     }
 }
 
 extension NotebookSaverWidgetsControl {
+    // Provider now returns a static value as the button does not consume dynamic state.
     struct Provider: ControlValueProvider {
         var previewValue: Bool {
-            false
+            false // Static preview value
         }
 
         func currentValue() async throws -> Bool {
-            let isRunning = true // Check if the timer is running
-            return isRunning
+            // This value is not directly used by the ControlWidgetButton's appearance
+            // but is required by StaticControlConfiguration.
+            return false 
         }
-    }
-}
-
-struct StartTimerIntent: SetValueIntent {
-    static let title: LocalizedStringResource = "Start a timer"
-
-    @Parameter(title: "Timer is running")
-    var value: Bool
-
-    func perform() async throws -> some IntentResult {
-        // Start / stop the timer based on `value`.
-        return .result()
     }
 }

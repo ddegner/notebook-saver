@@ -23,6 +23,7 @@ struct ContentView: View {
                     )
                     .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: -5)
                     .padding(.top, 80) // Add padding so tabs are visible when camera slides up
+                    .clipped() // Ensure content doesn't overflow
                 
                 // Camera View - slides up and down
                 CameraView(isShowingSettings: $isShowingSettings)
@@ -110,12 +111,11 @@ struct ContentView: View {
                     dragOffset = 0
                 }
                 
-                // Delay haptic feedback and sound to match when animation feels complete
-                // Spring animation with response: 0.4 and dampingFraction: 0.9 feels complete around 0.3-0.35 seconds
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                    // Stronger haptic feedback when camera stops moving
-                    let generator = UIImpactFeedbackGenerator(style: .medium)
-                    generator.impactOccurred(intensity: 1.0)
+                // Faster haptic feedback and sound - reduced delay for quicker response
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    // Lighter haptic feedback when camera stops moving
+                    let generator = UIImpactFeedbackGenerator(style: .light)
+                    generator.impactOccurred(intensity: 0.7)
                     
                     // Play softer click sound when camera reaches its final position
                     playPositionClickSound()
@@ -127,9 +127,9 @@ struct ContentView: View {
     
     // MARK: - Sound Functions
     private func playPositionClickSound() {
-        // Play a deeper clunk sound when camera reaches top or bottom position
-        // Using system sound 1105 (deeper, more thunk-like sound)
-        AudioServicesPlaySystemSound(1105)
+        // Play a softer click sound when camera reaches top or bottom position
+        // Using system sound 1104 (softer, more click-like sound)
+        AudioServicesPlaySystemSound(1104)
     }
 }
 

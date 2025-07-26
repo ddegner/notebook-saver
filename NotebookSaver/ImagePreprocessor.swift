@@ -9,7 +9,6 @@ enum PreprocessingError: LocalizedError {
     case invalidImageData
     case encodingFailed(Error?) // Added for generic encoding errors
     case resizeFailed // Added error for resizing issues
-    case pageDetectionFailed // New error case for page detection/cropping
 
     var errorDescription: String? {
         switch self {
@@ -22,8 +21,6 @@ enum PreprocessingError: LocalizedError {
             return "Could not create HEIC data from UIImage: \(error.localizedDescription)"
         case .resizeFailed:
              return "Failed to resize the image."
-        case .pageDetectionFailed:
-            return "Failed to detect or crop the page in the image."
         }
     }
 }
@@ -33,31 +30,6 @@ struct ImageProcessor {
 
     // Reusable CIContext might still be useful for other things, keep for now.
     private let ciContext = CIContext()
-
-    // Function to detect page, deskew, and crop
-    // This is a placeholder. Actual implementation requires CV logic.
-    func detectAndCropPage(image: UIImage) throws -> UIImage {
-        print("ImageProcessor: Attempting page detection and cropping...")
-        // --- Placeholder for actual page detection, deskewing, and cropping ---
-        // 1. Convert UIImage to CIImage or CGImage if needed for your CV library.
-        // 2. Use a library like VisionKit (VNDetectDocumentSegmentationRequest)
-        //    or a custom model to find page corners/quadrilateral.
-        // 3. If a page is detected:
-        //    a. Calculate the perspective correction transform.
-        //    b. Apply the transform to "flatten" or "deskew" the page.
-        //    c. Crop the image to the boundaries of the detected page.
-        // 4. If no page is detected or processing fails, you might:
-        //    a. Throw `PreprocessingError.pageDetectionFailed`
-        //    b. Or, return the original image if that's the desired fallback.
-        //
-        // For now, this function will just return the original image.
-        // In a real implementation, if no page is found, you might throw:
-        // throw PreprocessingError.pageDetectionFailed
-        
-        print("ImageProcessor: Page detection/cropping placeholder executed. Returning original image.")
-        return image
-        // --- End Placeholder ---
-    }
 
     // Function to resize a UIImage using Core Image (potentially faster)
     func resizeImage(_ image: UIImage, maxDimension: CGFloat) throws -> UIImage {

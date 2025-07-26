@@ -103,15 +103,16 @@ class VisionService: ImageTextExtractor {
                 print("Vision request performed.")
 
                 // Process results
-                guard let observations = textRecognitionRequest.results as? [VNRecognizedTextObservation], !observations.isEmpty else {
+                guard let results = textRecognitionRequest.results, 
+                      !results.isEmpty else {
                     print("Vision found no text observations.")
                     continuation.resume(throwing: VisionError.noTextFound)
                     return
                 }
-                print("Found \(observations.count) text observations.")
+                print("Found \(results.count) text observations.")
 
                 // Extract text
-                let recognizedStrings = observations.compactMap { $0.topCandidates(1).first?.string }
+                let recognizedStrings = results.compactMap { $0.topCandidates(1).first?.string }
                 let joinedText = recognizedStrings.joined(separator: "\n")
                 print("Extracted text successfully.")
                 continuation.resume(returning: joinedText)

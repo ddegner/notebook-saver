@@ -50,14 +50,14 @@ struct OpenAppWidgetEntryView : View {
                 ViewThatFits {
                     // Try icon and text first
                     HStack(spacing: 4) {
-                        Image(systemName: "plus.viewfinder")
+                        Image(systemName: "cat.fill")
                             .font(.body)
                             .widgetAccentable()
                         Text("Capture")
                             .widgetAccentable()
                     }
                     // Fallback to just the icon
-                    Image(systemName: "plus.viewfinder")
+                    Image(systemName: "cat.fill")
                         .font(.headline)
                         .widgetAccentable()
                 }
@@ -66,7 +66,7 @@ struct OpenAppWidgetEntryView : View {
                 // For circular widget on lock screen
                 ZStack {
                     AccessoryWidgetBackground()
-                    Image(systemName: "plus.viewfinder")
+                    Image(systemName: "cat.fill")
                         .font(.system(size: 30))
                         .widgetAccentable()
                 }
@@ -77,33 +77,41 @@ struct OpenAppWidgetEntryView : View {
                     AccessoryWidgetBackground()
                     VStack {
                         HStack {
-                            Image(systemName: "plus.viewfinder")
+                            Image(systemName: "cat.fill")
                                 .font(.body)
-                            Text("Cat Scribe")
+                            Text("Capture Note")
                                 .font(.headline)
                         }
-                        Text("Tap to add note")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
                     }
                     .padding(.horizontal, 4)
                 }
 
+            case .systemSmall:
+                // Home screen small widget
+                VStack {
+                    Image(systemName: "cat.fill")
+                        .font(.system(size: 32))
+                        .foregroundColor(.blue)
+                        .padding(.bottom, 4)
+
+                    Text("Capture Note")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding()
+
             case .systemMedium:
                 // Home screen medium widget
                 VStack {
-                    Image(systemName: "plus.viewfinder")
+                    Image(systemName: "cat.fill")
                         .font(.system(size: 40))
                         .foregroundColor(.blue)
                         .padding(.bottom, 5)
 
-                    Text("Cat Scribe")
+                    Text("Capture Note")
                         .font(.headline)
                         .padding(.bottom, 2)
-
-                    Text("Tap to add note")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding()
@@ -126,13 +134,14 @@ struct OpenAppWidget: Widget {
             OpenAppWidgetEntryView(entry: entry)
                 .widgetBackground(Color.clear) // Essential for Lock Screen transparency
         }
-        .configurationDisplayName("Cat Scribe") // Name shown in the widget gallery
+        .configurationDisplayName("Capture Note") // Changed text
         .description("Quickly open the Cat Scribe app.") // Description shown in the gallery
-        // Lock screen widgets plus systemMedium to fix preview error
+        // Lock screen widgets plus systemSmall and systemMedium to fix preview error
         .supportedFamilies([
             .accessoryInline,
             .accessoryCircular,
             .accessoryRectangular,
+            .systemSmall,
             .systemMedium
         ])
     }
@@ -152,6 +161,12 @@ struct OpenAppWidget: Widget {
 }
 
 #Preview(as: .accessoryRectangular) {
+    OpenAppWidget()
+} timeline: {
+    SimpleEntry(date: .now)
+}
+
+#Preview(as: .systemSmall) {
     OpenAppWidget()
 } timeline: {
     SimpleEntry(date: .now)
