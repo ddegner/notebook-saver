@@ -112,8 +112,6 @@ struct SettingsView: View {
     enum ConnectionStatus { case idle, testing, success, failure }
     @State private var connectionStatus: ConnectionStatus = .idle
     @State private var connectionStatusMessage: String = ""
-    
-
 
     // Model management state
     @State private var availableModels: [String] = []
@@ -127,6 +125,9 @@ struct SettingsView: View {
     @FocusState private var isDraftsTagFocused: Bool
     @FocusState private var isPhotoFolderFocused: Bool
     @FocusState private var isApiEndpointFocused: Bool
+    
+    // State to track AI tab layout refresh
+    @State private var aiTabLayoutId = UUID()
 
     // === Computed property for dynamic AI service selection ===
     private var currentTextExtractorType: TextExtractorType {
@@ -208,6 +209,12 @@ struct SettingsView: View {
                         Button(action: {
                             withAnimation(.easeInOut(duration: 0.2)) {
                                 selectedTab = tab
+                                // Force AI tab layout refresh when switching to AI tab
+                                if tab == .ai {
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                        aiTabLayoutId = UUID()
+                                    }
+                                }
                             }
                         }) {
                             VStack(spacing: 6) {
@@ -269,8 +276,6 @@ struct SettingsView: View {
             initializeModels()
             // Initialize prompt to match thinking toggle state on first launch
             initializePromptForThinkingState()
-            
-
         }
         .onDisappear {
             removeKeyboardObservers()
@@ -324,7 +329,7 @@ struct SettingsView: View {
     var generalTabView: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 30) {
+                VStack(alignment: .leading, spacing: 24) {
                 // Add tag to draft toggle - horizontal layout
                 HStack(spacing: 16) {
                     Text("Add Tag To Draft")
@@ -435,108 +440,115 @@ struct SettingsView: View {
         }
     }
 
-        // AI tab with model selection and API settings
+    // AI tab with model selection and API settings
     var aiTabView: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 25) {
-                // AI Instruction Prompt - Always show for Gemini configuration
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Prompt")
-                        .font(.headline)
-                        .foregroundColor(Color.orangeTabbyText.opacity(0.7))
-                    
-                    TextEditor(text: $userPrompt)
-                        .frame(minHeight: 100, maxHeight: 200)
-                        .scrollContentBackground(.hidden)
-                        .padding(10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.orangeTabbyLight.opacity(0.7))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(isPromptFocused ? Color.orangeTabbyAccent : Color.orangeTabbyDark.opacity(0.4), lineWidth: isPromptFocused ? 2 : 1)
-                                )
-                        )
-                        .focused($isPromptFocused)
-                        .onSubmit { isPromptFocused = false }
-                        .id("promptEditor")
-                        .onChange(of: isPromptFocused) { _, focused in
-                            if focused {
-                                // Add a small delay to ensure keyboard is shown first
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    withAnimation(.easeInOut(duration: 0.3)) {
-                                        proxy.scrollTo("promptEditor", anchor: .top)
+                VStack(alignment: .leading, spacing: 24) {
+                    // AI Instruction Prompt - Always show for Gemini configuration
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Prompt")
+                            .font(.headline)
+                            .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+                        
+                        TextEditor(text: $userPrompt)
+                            .frame(minHeight: 100, idealHeight: 150, maxHeight: 200)
+                            .scrollContentBackground(.hidden)
+                            .padding(10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color.orangeTabbyLight.opacity(0.7))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(isPromptFocused ? Color.orangeTabbyAccent : Color.orangeTabbyDark.opacity(0.4), lineWidth: isPromptFocused ? 2 : 1)
+                                    )
+                            )
+                            .focused($isPromptFocused)
+                            .onSubmit { isPromptFocused = false }
+                            .id("promptEditor")
+                            .onChange(of: isPromptFocused) { _, focused in
+                                if focused {
+                                    // Add a small delay to ensure keyboard is shown first
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                        withAnimation(.easeInOut(duration: 0.3)) {
+                                            proxy.scrollTo("promptEditor", anchor: .top)
+                                        }
                                     }
                                 }
                             }
-                        }
-                        .foregroundColor(Color.orangeTabbyText)
-                }
-
-                geminiSettingsSection(proxy: proxy) // Always show Gemini settings (API key, model, endpoint)
-                
-                // AI Thinking Toggle - horizontal layout (moved to bottom)
-                HStack(spacing: 16) {
-                    Text("Thinking")
-                        .font(.headline)
-                        .foregroundColor(Color.orangeTabbyText.opacity(0.7))
-                    
-                    Spacer()
-                    
-                    Toggle("", isOn: $thinkingEnabled)
-                        .labelsHidden()
-                        .tint(Color.orangeTabbyAccent)
-                        .onChange(of: thinkingEnabled) { _, enabled in
-                            updatePromptForThinking(enabled: enabled)
-                        }
-                }
-                
-                // Conditional display for Vision if it's the active fallback
-                if currentTextExtractorType == .vision {
-                    HStack(spacing: 12) {
-                        Image(systemName: "eye.circle.fill")
-                            .font(.title2)
-                            .foregroundColor(Color.orangeTabbyAccent)
-                        
-                        Text("Using Apple Vision for offline text recognition")
-                            .font(.subheadline)
                             .foregroundColor(Color.orangeTabbyText)
+                            .layoutPriority(1)
+                    }
+
+                    geminiSettingsSection(proxy: proxy) // Always show Gemini settings (API key, model, endpoint)
+                    
+                    // AI Thinking Toggle - horizontal layout (moved to bottom)
+                    HStack(spacing: 16) {
+                        Text("Thinking")
+                            .font(.headline)
+                            .foregroundColor(Color.orangeTabbyText.opacity(0.7))
                         
                         Spacer()
+                        
+                        Toggle("", isOn: $thinkingEnabled)
+                            .labelsHidden()
+                            .tint(Color.orangeTabbyAccent)
+                            .onChange(of: thinkingEnabled) { _, enabled in
+                                updatePromptForThinking(enabled: enabled)
+                            }
                     }
-                    .padding(16)
-                    .frame(maxWidth: .infinity)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.orangeTabbyLight.opacity(0.4))
-                            .overlay(
+                    
+                    // Conditional display for Vision if it's the active fallback
+                    if currentTextExtractorType == .vision {
+                        VStack(spacing: 12) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "eye.circle.fill")
+                                    .font(.title2)
+                                    .foregroundColor(Color.orangeTabbyAccent)
+                                
+                                Text("Using Apple Vision for offline text recognition")
+                                    .font(.subheadline)
+                                    .foregroundColor(Color.orangeTabbyText)
+                                
+                                Spacer()
+                            }
+                            .padding(16)
+                            .frame(maxWidth: .infinity)
+                            .background(
                                 RoundedRectangle(cornerRadius: 12)
-                                    .stroke(Color.orangeTabbyAccent.opacity(0.3), lineWidth: 1)
+                                    .fill(Color.orangeTabbyLight.opacity(0.4))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .stroke(Color.orangeTabbyAccent.opacity(0.3), lineWidth: 1)
+                                    )
                             )
-                    )
-                    visionSettingsSection(proxy: proxy)
+                            
+                            visionSettingsSection(proxy: proxy)
+                        }
+                    }
+                    
+                    Spacer(minLength: 40)
                 }
-                
-                Spacer(minLength: 40)
+                .padding()
+                .padding(.bottom, keyboardHeight)
+                .id(aiTabLayoutId)
             }
-            .padding()
-            .padding(.bottom, keyboardHeight)
-        }
-        .animation(.easeInOut(duration: 0.3), value: currentTextExtractorType) // Animate changes when Vision section appears/disappears
-        .animation(.easeInOut(duration: 0.2), value: isViewInitialized) // Animate spacing changes
+            .animation(.easeInOut, value: currentTextExtractorType) // Animate changes when Vision section appears/disappears
         }
         .onAppear {
             // Initialize prompt to match thinking toggle state on first launch
             initializePromptForThinkingState()
+            // Force layout refresh to fix spacing issue
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                aiTabLayoutId = UUID()
+            }
         }
-        .id("aiTabView") // Add stable ID to prevent layout issues
     }
 
     // About tab with app info
     var aboutTabView: some View {
         ScrollView {
-            VStack(spacing: 30) {
+            VStack(spacing: 24) {
                 // App Icon with 16:9 aspect ratio and rounded corners
                 Group {
                     #if os(iOS)
@@ -593,7 +605,7 @@ struct SettingsView: View {
                 }
 
                 // Description
-                Text("Capture notebook pages and convert them to digital notes using AI.")
+                Text("Capture and digitize notebook pages.")
                     .font(.body)
                     .multilineTextAlignment(.center)
                     .foregroundColor(Color.orangeTabbyText.opacity(0.7))
@@ -611,10 +623,6 @@ struct SettingsView: View {
                                 Text("Help & Documentation")
                                     .font(.headline)
                                     .foregroundColor(Color.orangeTabbyText)
-                                
-                                Text("Get help and learn how to use the app")
-                                    .font(.caption)
-                                    .foregroundColor(Color.orangeTabbyText.opacity(0.6))
                             }
                             
                             Spacer()
@@ -640,10 +648,6 @@ struct SettingsView: View {
                                 Text("Contact Support")
                                     .font(.headline)
                                     .foregroundColor(Color.orangeTabbyText)
-                                
-                                Text("Get help with any issues")
-                                    .font(.caption)
-                                    .foregroundColor(Color.orangeTabbyText.opacity(0.6))
                             }
                             
                             Spacer()
@@ -659,12 +663,10 @@ struct SettingsView: View {
                         )
                     }
                 }
-                .padding(.horizontal)
 
                 Spacer(minLength: 40)
             }
-            .padding(.horizontal)
-            .padding(.vertical)
+            .padding()
         }
     }
 
