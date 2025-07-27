@@ -19,22 +19,22 @@ enum VisionRecognitionLevel: String, CaseIterable, Identifiable {
 
 // Enum for managing Settings Tabs
 enum SettingsTab: Int, CaseIterable, Identifiable {
-    case general, ai, about
+    case ai, general, about
 
     var id: Int { rawValue }
 
     var displayName: String {
         switch self {
-        case .general: return "General"
         case .ai: return "AI"
+        case .general: return "General"
         case .about: return "About"
         }
     }
 
     var iconName: String {
         switch self {
-        case .general: return "gear"
         case .ai: return "brain"
+        case .general: return "gear"
         case .about: return "info.circle"
         }
     }
@@ -51,7 +51,7 @@ extension Color {
 
 struct SettingsView: View {
     // Tab selection state
-    @State private var selectedTab: SettingsTab = .general
+    @State private var selectedTab: SettingsTab = .ai
     
     // Keyboard handling
     @State private var keyboardHeight: CGFloat = 0
@@ -59,7 +59,6 @@ struct SettingsView: View {
     // AppStorage keys - good practice to define them
     private enum StorageKeys {
         static let selectedModelId = "selectedModelId"
-        static let customModelName = "customModelName"
         static let userPrompt = "userPrompt"
         static let apiEndpointUrlString = "apiEndpointUrlString"
         static let draftsTag = "draftsTag"
@@ -69,11 +68,12 @@ struct SettingsView: View {
         // Vision specific keys
         static let visionRecognitionLevel = "visionRecognitionLevel"
         static let visionUsesLanguageCorrection = "visionUsesLanguageCorrection"
+        // AI thinking toggle
+        static let thinkingEnabled = "thinkingEnabled"
     }
 
     // === Persisted Settings ===
     @AppStorage(StorageKeys.selectedModelId) private var selectedModelId: String = "gemini-2.5-flash"
-    @AppStorage(StorageKeys.customModelName) private var customModelName: String = ""
     @AppStorage(StorageKeys.userPrompt) private var userPrompt: String = """
         SELF_TALK: off
         REASONING: off
@@ -90,11 +90,13 @@ struct SettingsView: View {
     @AppStorage(StorageKeys.apiEndpointUrlString) private var apiEndpointUrlString: String = "https://generativelanguage.googleapis.com/v1beta/models/"
     @AppStorage(StorageKeys.draftsTag) private var draftsTag: String = "notebook"
     @AppStorage(StorageKeys.photoFolderName) private var photoFolderName: String = "notebook" // Changed from savePhotosToAlbum
-    @AppStorage("savePhotosEnabled") private var savePhotosEnabled: Bool = true // New toggle for saving photos
-    @AppStorage("addDraftTagEnabled") private var addDraftTagEnabled: Bool = true // New toggle for adding draft tags
+    @AppStorage(StorageKeys.savePhotosEnabled) private var savePhotosEnabled: Bool = true // New toggle for saving photos
+    @AppStorage(StorageKeys.addDraftTagEnabled) private var addDraftTagEnabled: Bool = true // New toggle for adding draft tags
     // Vision specific settings
     @AppStorage(StorageKeys.visionRecognitionLevel) private var visionRecognitionLevel: VisionRecognitionLevel = .accurate // Default to accurate
     @AppStorage(StorageKeys.visionUsesLanguageCorrection) private var visionUsesLanguageCorrection: Bool = true // Default to true
+    // AI thinking toggle
+    @AppStorage(StorageKeys.thinkingEnabled) private var thinkingEnabled: Bool = false // Default to false (thinking off)
 
     // === State for API Key (using Keychain) ===
     @State private var apiKey: String = ""
@@ -122,8 +124,10 @@ struct SettingsView: View {
     @FocusState private var isApiKeyFocused: Bool
     @FocusState private var isDraftsTagFocused: Bool
     @FocusState private var isPhotoFolderFocused: Bool
-    @FocusState private var isCustomModelFocused: Bool
     @FocusState private var isApiEndpointFocused: Bool
+    
+    // State to track AI tab layout refresh
+    @State private var aiTabLayoutId = UUID()
 
     // === Computed property for dynamic AI service selection ===
     private var currentTextExtractorType: TextExtractorType {
@@ -134,16 +138,9 @@ struct SettingsView: View {
         return .gemini
     }
     
-    // All available models, plus Custom if it's currently selected
+    // All available models
     private var displayedModels: [String] {
-        var models = availableModels.filter { $0 != "Custom" }
-        
-        // If current selection is Custom, include it in the list
-        if selectedModelId == "Custom" {
-            models.append("Custom")
-        }
-        
-        return models
+        return availableModels
     }
 
     // Sample prompts
@@ -204,6 +201,7 @@ struct SettingsView: View {
                 .transition(.opacity)
                 .animation(.easeInOut(duration: 0.2), value: selectedTab)
                 .frame(maxHeight: .infinity) // Allow content to expand
+
                 
                 // Custom tab selector - moved to bottom with enhanced 3D styling
                 HStack(spacing: 0) {
@@ -211,6 +209,12 @@ struct SettingsView: View {
                         Button(action: {
                             withAnimation(.easeInOut(duration: 0.2)) {
                                 selectedTab = tab
+                                // Force AI tab layout refresh when switching to AI tab
+                                if tab == .ai {
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                        aiTabLayoutId = UUID()
+                                    }
+                                }
                             }
                         }) {
                             VStack(spacing: 6) {
@@ -257,6 +261,7 @@ struct SettingsView: View {
                         )
                 )
                 .background(Color.orangeTabbyBackground) // Extend background to safe area
+                .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: -2) // Shadow cast from tabs onto content above
             }
             .frame(width: geometry.size.width, height: geometry.size.height - 80) // Subtract 80 to account for top padding in ContentView
         }
@@ -269,6 +274,8 @@ struct SettingsView: View {
             }
             setupKeyboardObservers()
             initializeModels()
+            // Initialize prompt to match thinking toggle state on first launch
+            initializePromptForThinkingState()
         }
         .onDisappear {
             removeKeyboardObservers()
@@ -359,7 +366,8 @@ struct SettingsView: View {
                                     }
                                 }
                             }
-                            .padding(12)
+                            .frame(height: 46)
+                            .padding(.horizontal, 12)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
                                     .fill(Color.orangeTabbyLight.opacity(0.7))
@@ -378,7 +386,6 @@ struct SettingsView: View {
                     Text("Save Photo")
                         .font(.headline)
                         .foregroundColor(Color.orangeTabbyText.opacity(0.7))
-                        .frame(width: 120, alignment: .leading)
                     
                     Spacer()
                     
@@ -410,7 +417,8 @@ struct SettingsView: View {
                                     }
                                 }
                             }
-                            .padding(12)
+                            .frame(height: 46)
+                            .padding(.horizontal, 12)
                             .background(
                                 RoundedRectangle(cornerRadius: 8)
                                     .fill(Color.orangeTabbyLight.opacity(0.7))
@@ -436,82 +444,111 @@ struct SettingsView: View {
     var aiTabView: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 30) {
-                // AI Instruction Prompt - Always show for Gemini configuration
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Prompt")
-                        .font(.headline)
-                        .foregroundColor(Color.orangeTabbyText.opacity(0.7))
-                    
-                    TextEditor(text: $userPrompt)
-                        .frame(minHeight: 100, maxHeight: 200)
-                        .scrollContentBackground(.hidden)
-                        .padding(10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.orangeTabbyLight.opacity(0.7))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(isPromptFocused ? Color.orangeTabbyAccent : Color.orangeTabbyDark.opacity(0.4), lineWidth: isPromptFocused ? 2 : 1)
-                                )
-                        )
-                        .focused($isPromptFocused)
-                        .onSubmit { isPromptFocused = false }
-                        .id("promptEditor")
-                        .onChange(of: isPromptFocused) { _, focused in
-                            if focused {
-                                // Add a small delay to ensure keyboard is shown first
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                    withAnimation(.easeInOut(duration: 0.3)) {
-                                        proxy.scrollTo("promptEditor", anchor: .top)
+                VStack(alignment: .leading, spacing: 24) {
+                    // AI Instruction Prompt - Always show for Gemini configuration
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Prompt")
+                            .font(.headline)
+                            .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+                        
+                        TextEditor(text: $userPrompt)
+                            .frame(minHeight: 100, idealHeight: 150, maxHeight: 200)
+                            .scrollContentBackground(.hidden)
+                            .padding(10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color.orangeTabbyLight.opacity(0.7))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(isPromptFocused ? Color.orangeTabbyAccent : Color.orangeTabbyDark.opacity(0.4), lineWidth: isPromptFocused ? 2 : 1)
+                                    )
+                            )
+                            .focused($isPromptFocused)
+                            .onSubmit { isPromptFocused = false }
+                            .id("promptEditor")
+                            .onChange(of: isPromptFocused) { _, focused in
+                                if focused {
+                                    // Add a small delay to ensure keyboard is shown first
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                        withAnimation(.easeInOut(duration: 0.3)) {
+                                            proxy.scrollTo("promptEditor", anchor: .top)
+                                        }
                                     }
                                 }
                             }
-                        }
-                        .foregroundColor(Color.orangeTabbyText)
-                }
-
-                geminiSettingsSection(proxy: proxy) // Always show Gemini settings (API key, model, endpoint)
-                
-                // Conditional display for Vision if it's the active fallback
-                if currentTextExtractorType == .vision {
-                    HStack(spacing: 12) {
-                        Image(systemName: "eye.circle.fill")
-                            .font(.title2)
-                            .foregroundColor(Color.orangeTabbyAccent)
-                        
-                        Text("Using Apple Vision for offline text recognition")
-                            .font(.subheadline)
                             .foregroundColor(Color.orangeTabbyText)
+                            .layoutPriority(1)
+                    }
+
+                    geminiSettingsSection(proxy: proxy) // Always show Gemini settings (API key, model, endpoint)
+                    
+                    // AI Thinking Toggle - horizontal layout (moved to bottom)
+                    HStack(spacing: 16) {
+                        Text("Thinking")
+                            .font(.headline)
+                            .foregroundColor(Color.orangeTabbyText.opacity(0.7))
                         
                         Spacer()
+                        
+                        Toggle("", isOn: $thinkingEnabled)
+                            .labelsHidden()
+                            .tint(Color.orangeTabbyAccent)
+                            .onChange(of: thinkingEnabled) { _, enabled in
+                                updatePromptForThinking(enabled: enabled)
+                            }
                     }
-                    .padding(16)
-                    .frame(maxWidth: .infinity)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.orangeTabbyLight.opacity(0.4))
-                            .overlay(
+                    
+                    // Conditional display for Vision if it's the active fallback
+                    if currentTextExtractorType == .vision {
+                        VStack(spacing: 12) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "eye.circle.fill")
+                                    .font(.title2)
+                                    .foregroundColor(Color.orangeTabbyAccent)
+                                
+                                Text("Using Apple Vision for offline text recognition")
+                                    .font(.subheadline)
+                                    .foregroundColor(Color.orangeTabbyText)
+                                
+                                Spacer()
+                            }
+                            .padding(16)
+                            .frame(maxWidth: .infinity)
+                            .background(
                                 RoundedRectangle(cornerRadius: 12)
-                                    .stroke(Color.orangeTabbyAccent.opacity(0.3), lineWidth: 1)
+                                    .fill(Color.orangeTabbyLight.opacity(0.4))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .stroke(Color.orangeTabbyAccent.opacity(0.3), lineWidth: 1)
+                                    )
                             )
-                    )
-                    visionSettingsSection(proxy: proxy)
+                            
+                            visionSettingsSection(proxy: proxy)
+                        }
+                    }
+                    
+                    Spacer(minLength: 40)
                 }
-                
-                Spacer(minLength: 40)
+                .padding()
+                .padding(.bottom, keyboardHeight)
+                .id(aiTabLayoutId)
             }
-            .padding()
-            .padding(.bottom, keyboardHeight)
+            .animation(.easeInOut, value: currentTextExtractorType) // Animate changes when Vision section appears/disappears
         }
-        .animation(.easeInOut, value: currentTextExtractorType) // Animate changes when Vision section appears/disappears
+        .onAppear {
+            // Initialize prompt to match thinking toggle state on first launch
+            initializePromptForThinkingState()
+            // Force layout refresh to fix spacing issue
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                aiTabLayoutId = UUID()
+            }
         }
     }
 
     // About tab with app info
     var aboutTabView: some View {
         ScrollView {
-            VStack(spacing: 30) {
+            VStack(spacing: 24) {
                 // App Icon with 16:9 aspect ratio and rounded corners
                 Group {
                     #if os(iOS)
@@ -568,7 +605,7 @@ struct SettingsView: View {
                 }
 
                 // Description
-                Text("Capture notebook pages and convert them to digital notes using AI.")
+                Text("Capture and digitize notebook pages.")
                     .font(.body)
                     .multilineTextAlignment(.center)
                     .foregroundColor(Color.orangeTabbyText.opacity(0.7))
@@ -586,10 +623,6 @@ struct SettingsView: View {
                                 Text("Help & Documentation")
                                     .font(.headline)
                                     .foregroundColor(Color.orangeTabbyText)
-                                
-                                Text("Get help and learn how to use the app")
-                                    .font(.caption)
-                                    .foregroundColor(Color.orangeTabbyText.opacity(0.6))
                             }
                             
                             Spacer()
@@ -615,10 +648,6 @@ struct SettingsView: View {
                                 Text("Contact Support")
                                     .font(.headline)
                                     .foregroundColor(Color.orangeTabbyText)
-                                
-                                Text("Get help with any issues")
-                                    .font(.caption)
-                                    .foregroundColor(Color.orangeTabbyText.opacity(0.6))
                             }
                             
                             Spacer()
@@ -634,12 +663,10 @@ struct SettingsView: View {
                         )
                     }
                 }
-                .padding(.horizontal)
 
                 Spacer(minLength: 40)
             }
-            .padding(.horizontal)
-            .padding(.vertical)
+            .padding()
         }
     }
 
@@ -649,7 +676,7 @@ struct SettingsView: View {
     private func geminiSettingsSection(proxy: ScrollViewProxy) -> some View {
         // Model selection
         VStack(alignment: .leading, spacing: 12) {
-            Text("AI Model")
+            Text("Model")
                 .font(.headline)
                 .foregroundColor(Color.orangeTabbyText.opacity(0.7))
             
@@ -678,7 +705,8 @@ struct SettingsView: View {
                 }
                 .pickerStyle(MenuPickerStyle())
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
+                .frame(height: 46)
+                .padding(.horizontal, 12)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
                         .fill(Color.orangeTabbyLight.opacity(0.7))
@@ -712,55 +740,12 @@ struct SettingsView: View {
                 .disabled(isRefreshingModels || apiKey.isEmpty)
             }
             
-            // Custom model option
-            HStack {
-                Spacer()
-                Button(action: { selectedModelId = "Custom" }) {
-                    Text("Custom Model")
-                        .font(.caption)
-                        .foregroundColor(Color.orangeTabbyAccent)
-                        .padding(.vertical, 4)
-                        .padding(.horizontal, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Color.orangeTabbyLight.opacity(0.5))
-                        )
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
-            
-            if selectedModelId == "Custom" {
-                TextField("Custom Model ID (e.g. gemini-custom-001)", text: $customModelName)
-                    .disableAutocorrection(true)
-                    .focused($isCustomModelFocused)
-                    .onSubmit { isCustomModelFocused = false }
-                    .id("customModel")
-                    .onChange(of: isCustomModelFocused) { _, focused in
-                        if focused {
-                            // Add a small delay to ensure keyboard is shown first
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                withAnimation(.easeInOut(duration: 0.3)) {
-                                    proxy.scrollTo("customModel", anchor: .top)
-                                }
-                            }
-                        }
-                    }
-                    // .cardStyled(isError: customModelName.isEmpty && selectedModelId == .custom) // Apply explicit styling for consistency
-                    .padding(10)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.orangeTabbyLight.opacity(0.7)))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(isCustomModelFocused ? Color.orangeTabbyAccent : (customModelName.isEmpty && selectedModelId == "Custom" ? Color.red : Color.orangeTabbyDark.opacity(0.4)), lineWidth: isCustomModelFocused || (customModelName.isEmpty && selectedModelId == "Custom") ? 2 : 1))
-                    .foregroundColor(Color.orangeTabbyText)
-                if customModelName.isEmpty && selectedModelId == "Custom" { // Ensure error text is visible
-                    Text("Custom model name is required")
-                        .font(.caption)
-                        .foregroundColor(.red) // Error color remains red
-                }
-            }
+
         }
         
         // API Key
-        VStack(alignment: .leading, spacing: 12) {
-            Text("API Key")
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Key")
                 .font(.headline)
                 .foregroundColor(Color.orangeTabbyText.opacity(0.7))
             
@@ -768,10 +753,10 @@ struct SettingsView: View {
                 SecureField(apiKeyPlaceholderText, text: $apiKey)
                     .textContentType(.password)
                     // .cardStyled(isError: apiKey.isEmpty)
-                    .padding(10)
+                    .frame(height: 46)
+                    .padding(.horizontal, 12)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Color.orangeTabbyLight.opacity(0.7)))
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(isApiKeyFocused ? Color.orangeTabbyAccent : (apiKey.isEmpty ? Color.red : Color.orangeTabbyDark.opacity(0.4)), lineWidth: isApiKeyFocused || apiKey.isEmpty ? 2:1 ))
-                    .frame(minHeight: 36)
                     .layoutPriority(1)
                     .focused($isApiKeyFocused)
                     .onSubmit { isApiKeyFocused = false }
@@ -790,11 +775,11 @@ struct SettingsView: View {
                     }
                     .foregroundColor(Color.orangeTabbyText)
                 Button(action: { saveApiKey() }) {
-                    Image(systemName: "tray.and.arrow.down")
+                    Image(systemName: "square.and.arrow.down")
                         .imageScale(.large)
                         .foregroundColor((apiKey.isEmpty || !showSaveConfirmation) ? Color.orangeTabbyText.opacity(0.4) : Color.white)
                 }
-                .frame(width: 44, height: 46) // Adjusted height to match TextField + padding
+                .frame(width: 44, height: 46)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
                         .fill((apiKey.isEmpty || !showSaveConfirmation) ? 
@@ -802,11 +787,20 @@ struct SettingsView: View {
                 )
                 .disabled(apiKey.isEmpty)
             }
+            
+            if !apiKeyStatusMessage.isEmpty {
+                HStack {
+                    Spacer()
+                    Text(apiKeyStatusMessage)
+                        .font(.caption)
+                        .foregroundColor(apiKeyStatusMessage.contains("Saved") ? Color.black : .red)
+                }
+            }
         }
         
         // API Endpoint URL and Test Connection
-        VStack(alignment: .leading, spacing: 12) {
-            Text("API Endpoint")
+        VStack(alignment: .leading, spacing: 8) {
+            Text("AI Endpoint")
                 .font(.headline)
                 .foregroundColor(Color.orangeTabbyText.opacity(0.7))
             
@@ -827,26 +821,34 @@ struct SettingsView: View {
                         }
                     }
                     // .cardStyled(isError: apiUrlHasError)
-                    .padding(10)
+                    .frame(height: 46)
+                    .padding(.horizontal, 12)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Color.orangeTabbyLight.opacity(0.7)))
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(isApiEndpointFocused ? Color.orangeTabbyAccent : (apiUrlHasError ? Color.red : Color.orangeTabbyDark.opacity(0.4)), lineWidth: isApiEndpointFocused || apiUrlHasError ? 2:1 ))
-                    .frame(minHeight: 36)
                     .layoutPriority(1)
                     .foregroundColor(Color.orangeTabbyText)
                 Button(action: { if connectionStatus != .testing { testConnection() } }) {
-                    Image(systemName: "network")
+                    Image(systemName: "square.and.arrow.down")
                         .imageScale(.large)
                         .foregroundColor((apiEndpointUrlString.isEmpty || connectionStatus == .testing) ? 
                                        Color.orangeTabbyText.opacity(0.4) : Color.white)
-                        .rotationEffect(connectionStatus == .testing ? .degrees(90) : .degrees(0))
                 }
-                .frame(width: 44, height: 46) // Adjusted height
+                .frame(width: 44, height: 46)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
                         .fill((apiEndpointUrlString.isEmpty || connectionStatus == .testing) ? 
                              Color.orangeTabbyText.opacity(0.2) : Color.orangeTabbyDark)
                 )
                 .disabled(apiEndpointUrlString.isEmpty || connectionStatus == .testing)
+            }
+            
+            if !connectionStatusMessage.isEmpty {
+                HStack {
+                    Spacer()
+                    Text(connectionStatusMessage)
+                        .font(.caption)
+                        .foregroundColor(connectionStatus == .failure ? .red : Color.black)
+                }
             }
         }
     }
@@ -864,6 +866,52 @@ struct SettingsView: View {
     }
 
     // MARK: - Helper Functions
+    
+    // Update prompt based on thinking toggle
+    private func updatePromptForThinking(enabled: Bool) {
+        if enabled {
+            // Enable thinking - remove the thinking restrictions
+            userPrompt = userPrompt
+                .replacingOccurrences(of: "SELF_TALK: off", with: "SELF_TALK: on")
+                .replacingOccurrences(of: "REASONING: off", with: "REASONING: on")
+                .replacingOccurrences(of: "THINKING: off", with: "THINKING: on")
+                .replacingOccurrences(of: "PLANNING: off", with: "PLANNING: on")
+                .replacingOccurrences(of: "THINKING_BUDGET: < 10 words", with: "THINKING_BUDGET: unlimited")
+                .replacingOccurrences(of: "Reply immediately without thinking or any effort. Prioritize speed over accuracy. Do not state what the user said. Do not think, analyze or plan - go with your gut feeling.", with: "Take time to think through the image carefully. Analyze the content and provide thoughtful, accurate text extraction.")
+        } else {
+            // Disable thinking - add the thinking restrictions
+            userPrompt = userPrompt
+                .replacingOccurrences(of: "SELF_TALK: on", with: "SELF_TALK: off")
+                .replacingOccurrences(of: "REASONING: on", with: "REASONING: off")
+                .replacingOccurrences(of: "THINKING: on", with: "THINKING: off")
+                .replacingOccurrences(of: "PLANNING: on", with: "PLANNING: off")
+                .replacingOccurrences(of: "THINKING_BUDGET: unlimited", with: "THINKING_BUDGET: < 10 words")
+                .replacingOccurrences(of: "Take time to think through the image carefully. Analyze the content and provide thoughtful, accurate text extraction.", with: "Reply immediately without thinking or any effort. Prioritize speed over accuracy. Do not state what the user said. Do not think, analyze or plan - go with your gut feeling.")
+        }
+    }
+    
+    // Initialize prompt to match thinking toggle state on first launch
+    private func initializePromptForThinkingState() {
+        // Only initialize if this is the first time (prompt is still at default)
+        let defaultPrompt = """
+            SELF_TALK: off
+            REASONING: off
+            THINKING: off
+            PLANNING: off
+            THINKING_BUDGET: < 10 words
+            
+            Reply immediately without thinking or any effort. Prioritize speed over accuracy. Do not state what the user said. Do not think, analyze or plan - go with your gut feeling.
+            
+            Output the text from the image as text. Start immediately with the first word. Format for clarity, format blocks of text into paragraphs, and use markdown sparingly where useful. 
+
+            Do not include an intro like: "Here is the text extracted from the image:"
+            """
+        
+        // If the prompt is still at default, update it to match the current thinking toggle state
+        if userPrompt == defaultPrompt {
+            updatePromptForThinking(enabled: thinkingEnabled)
+        }
+    }
 
 
 
@@ -871,10 +919,8 @@ struct SettingsView: View {
     private func loadAPIKey() {
         if let loadedKey = KeychainService.loadAPIKey() {
             apiKey = loadedKey
-            apiKeyStatusMessage = "Key loaded from Keychain"
             showSaveConfirmation = true
         } else {
-            apiKeyStatusMessage = "Enter your API Key"
             showSaveConfirmation = false
         }
     }
@@ -924,17 +970,29 @@ struct SettingsView: View {
     // Reset settings to defaults
     private func resetToDefaults() {
         selectedModelId = "gemini-2.5-flash"
-        customModelName = ""
         userPrompt = """
-            Output the text from the image as text. Start immediately with the first word. \
-            Format for clarity, format blocks of text into paragraphs, and use markdown sparingly.
+            SELF_TALK: off
+            REASONING: off
+            THINKING: off
+            PLANNING: off
+            THINKING_BUDGET: < 10 words
+            
+            Reply immediately without thinking or any effort. Prioritize speed over accuracy. Do not state what the user said. Do not think, analyze or plan - go with your gut feeling.
+            
+            Output the text from the image as text. Start immediately with the first word. Format for clarity, format blocks of text into paragraphs, and use markdown sparingly where useful. 
+
+            Do not include an intro like: "Here is the text extracted from the image:"
             """
         apiEndpointUrlString = "https://generativelanguage.googleapis.com/v1beta/models/"
         draftsTag = "notebook"
         photoFolderName = "notebook" // Updated from savePhotosToAlbum
+        savePhotosEnabled = true
+        addDraftTagEnabled = true
         // Reset Vision settings
         visionRecognitionLevel = .accurate
         visionUsesLanguageCorrection = true
+        // Reset AI thinking setting
+        thinkingEnabled = false
         // Note: API key is not reset as it's sensitive information
     }
 

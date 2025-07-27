@@ -357,13 +357,14 @@ extension CameraView {
     
     private func sendToTargetApp(text: String) async throws {
         let draftsTag = UserDefaults.standard.string(forKey: "draftsTag") ?? "notebook"
-        print("Using draftsTag: \(draftsTag)")
+        let addDraftTagEnabled = UserDefaults.standard.bool(forKey: "addDraftTagEnabled")
+        print("Using draftsTag: \(draftsTag), addDraftTagEnabled: \(addDraftTagEnabled)")
 
         // Include photo link in text if available and enabled in settings
         let finalText = text
         
         var tagsToSend = [String]()
-        if !draftsTag.isEmpty {
+        if addDraftTagEnabled && !draftsTag.isEmpty {
             tagsToSend.append(draftsTag)
         }
 
@@ -430,13 +431,7 @@ extension CameraView {
         }
     }
 
-    private func appendDraftsTagIfNeeded(to text: String) -> String {
-        let draftsTag = UserDefaults.standard.string(forKey: "draftsTag") ?? "notebook"
-        if !draftsTag.isEmpty {
-            return text + "\n\n#\(draftsTag)"
-        }
-        return text
-    }
+
 }
 
 // MARK: - Custom Capture Button Component

@@ -217,13 +217,7 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
     // MARK: - Connection Warming
 
     public static func warmUpConnection() async -> Bool {
-        // Skip if already verified
-        if connectionVerified {
-            print("GeminiService: Connection already verified, skipping warm-up")
-            return true
-        }
-        
-        print("GeminiService: Attempting to warm up connection...")
+        print("GeminiService: Testing connection...")
         let defaults = UserDefaults.standard
         let apiKey = KeychainService.loadAPIKey()
 
@@ -243,6 +237,7 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
         let warmUpUrl = apiBaseUrl
         var request = URLRequest(url: warmUpUrl)
         request.httpMethod = "GET" // Typically, listing models is a GET request
+        request.timeoutInterval = 10.0 // Add timeout for connection test
 
         var urlComponents = URLComponents(url: warmUpUrl, resolvingAgainstBaseURL: false)
         urlComponents?.queryItems = [URLQueryItem(name: "key", value: key)]
@@ -263,20 +258,15 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
             if (200...299).contains(httpResponse.statusCode) {
                 print("GeminiService (WarmUp): Connection successful (Status: \(httpResponse.statusCode)). Ready for requests.")
                 connectionVerified = true
-                // You could optionally decode the response if needed, but for warming, a 2xx is often enough.
-                // For example, to verify it's a valid model list:
-                // if let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any], json["models"] != nil {
-                //     print("GeminiService (WarmUp): Successfully fetched model list.")
-                // } else {
-                //     print("GeminiService (WarmUp): Connection successful, but response format unexpected.")
-                // }
                 return true
             } else {
                 print("GeminiService (WarmUp): Connection attempt failed with status code: \(httpResponse.statusCode). Response: \(String(data: data, encoding: .utf8) ?? "No response body")")
+                connectionVerified = false
                 return false
             }
         } catch {
             print("GeminiService (WarmUp): Network error during connection warm-up: \(error.localizedDescription)")
+            connectionVerified = false
             return false
         }
     }

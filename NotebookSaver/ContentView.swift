@@ -29,7 +29,7 @@ struct ContentView: View {
                 CameraView(isShowingSettings: $isShowingSettings)
                     .frame(width: geometry.size.width, height: geometry.size.height)
                     .offset(y: cameraOffset + dragOffset)
-                    .shadow(color: .black.opacity(0.3), radius: 20, x: 0, y: 10)
+                    .shadow(color: .black.opacity(0.4), radius: 20, x: 0, y: 10)
             }
             .gesture(
                 DragGesture()
