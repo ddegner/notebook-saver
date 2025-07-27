@@ -54,12 +54,14 @@ struct CameraView: View {
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .path(in: CGRect(x: 0, y: 0, width: geometry.size.width, height: geometry.size.height)))
             .edgesIgnoringSafeArea(.all)
+            .persistentSystemOverlays(.hidden)
         }
         .setupCameraView(
             cameraManager: cameraManager,
             errorMessage: $errorMessage,
             showErrorAlert: $showErrorAlert
         )
+        .dismissKeyboardOnTap()
     }
 }
 
@@ -263,12 +265,26 @@ extension CameraView {
             let capturedImageData = try result.get()
             print("Photo captured successfully, size: \(capturedImageData.count) bytes")
 
-            let processedImage = try await processImage(from: capturedImageData)
-            let _ = try await savePhotoIfNeeded(image: processedImage)
-            let extractedText = try await extractTextFromImage(capturedImageData)
+            // 1. Process image once and cache it - eliminates redundant UIImage creations
+            let processedImage = try await processImageOnce(from: capturedImageData)
+            print("Image processed and cached, size: \(processedImage.size)")
+
+            // 2. Run parallel processing using cached image - eliminates sequential blocking
+            async let photoSaveTask = savePhotoIfNeeded(image: processedImage)
+            async let textExtractionTask = extractTextFromProcessedImage(processedImage)
+            
+            // Wait for both operations to complete
+            let (photoURL, extractedText) = try await (photoSaveTask, textExtractionTask)
+            print("Parallel processing completed - Photo: \(photoURL?.absoluteString ?? "not saved"), Text: \(extractedText.prefix(50))...")
+
+            // 3. Send to target app
             try await sendToTargetApp(text: extractedText)
 
-            await MainActor.run { isLoading = false }
+            // 4. Single state update at the end - eliminates multiple MainActor calls
+            await MainActor.run { 
+                isLoading = false 
+                print("Processing pipeline completed successfully")
+            }
 
         } catch let error as CameraManager.CameraError {
             await handleError(error.localizedDescription)
@@ -283,13 +299,39 @@ extension CameraView {
         }
     }
     
-    private func processImage(from data: Data) async throws -> UIImage {
+    // MARK: - Optimized Image Processing
+    
+    private func processImageOnce(from data: Data) async throws -> UIImage {
         guard let imageToProcess = UIImage(data: data) else {
             throw CameraManager.CameraError.processingFailed("Could not create UIImage from captured data.")
         }
 
         // For now, return the original image without any processing
+        // This could be enhanced with resizing/optimization if needed for the UI
         return imageToProcess
+    }
+    
+    private func extractTextFromProcessedImage(_ processedImage: UIImage) async throws -> String {
+        let defaults = UserDefaults.standard
+        let selectedServiceRaw = defaults.string(forKey: "textExtractorService") ?? TextExtractorType.gemini.rawValue
+        let selectedService = TextExtractorType(rawValue: selectedServiceRaw) ?? .gemini
+
+        print("Selected Text Extractor: \(selectedService.rawValue)")
+
+        let textExtractor: ImageTextExtractor
+        switch selectedService {
+        case .gemini:
+            textExtractor = GeminiService()
+            print("Using Gemini Service with processed image")
+        case .vision:
+            textExtractor = VisionService()
+            print("Using Vision Service with processed image")
+        }
+
+        print("Calling \(selectedService.rawValue) Service with cached image...")
+        let extractedText = try await textExtractor.extractText(from: processedImage)
+        print("Successfully extracted text: \(extractedText.prefix(100))...")
+        return extractedText
     }
     
     private func savePhotoIfNeeded(image: UIImage) async throws -> URL? {
@@ -313,35 +355,9 @@ extension CameraView {
         }
     }
     
-    private func extractTextFromImage(_ imageData: Data) async throws -> String {
-        let defaults = UserDefaults.standard
-        let selectedServiceRaw = defaults.string(forKey: "textExtractorService") ?? TextExtractorType.gemini.rawValue
-        let selectedService = TextExtractorType(rawValue: selectedServiceRaw) ?? .gemini
-
-        print("Selected Text Extractor: \(selectedService.rawValue)")
-
-        let textExtractor: ImageTextExtractor
-        switch selectedService {
-        case .gemini:
-            textExtractor = GeminiService()
-            print("Using Gemini Service")
-        case .vision:
-            textExtractor = VisionService()
-            print("Using Vision Service")
-        }
-
-        print("Calling \(selectedService.rawValue) Service...")
-        let extractedText = try await textExtractor.extractText(from: imageData)
-        print("Successfully extracted text: \(extractedText.prefix(100))...")
-        return extractedText
-    }
-    
     private func sendToTargetApp(text: String) async throws {
         let draftsTag = UserDefaults.standard.string(forKey: "draftsTag") ?? "notebook"
         print("Using draftsTag: \(draftsTag)")
-
-        // let targetApp = UserDefaults.standard.string(forKey: "targetApp") ?? "Drafts" // REMOVE: No longer needed
-        // print("Target app: \\(targetApp)") // REMOVE: No longer needed
 
         // Include photo link in text if available and enabled in settings
         let finalText = text
@@ -354,11 +370,9 @@ extension CameraView {
         let uniqueTags = Set(tagsToSend)
         let combinedTags = uniqueTags.joined(separator: ",")
 
-        // if targetApp == "Drafts" { // MODIFY: Check if Drafts is installed
         if isDraftsAppInstalled() {
             print("Drafts app is installed. Sending text to Drafts.")
             try await sendToDraftsApp(text: finalText, tags: combinedTags)
-        // } else if targetApp == "Notes" { // MODIFY: Fallback to Share Sheet
         } else {
             print("Drafts app is not installed. Presenting share sheet.")
             presentShareSheet(text: finalText)

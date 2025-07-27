@@ -16,45 +16,39 @@ class GeminiModelService: ObservableObject {
     }
     
     // Cached models from API
-    @Published var availableModels: [ModelOption] = []
+    @Published var availableModels: [String] = []
     
     // Check if we should fetch models (first launch only)
     var shouldFetchModels: Bool {
-        let hasInitiallyFetched = UserDefaults.standard.bool(forKey: StorageKeys.hasInitiallyFetchedModels)
-        return !hasInitiallyFetched
+        return !UserDefaults.standard.bool(forKey: StorageKeys.hasInitiallyFetchedModels)
     }
     
-    // Fetch available models from Gemini API
-    func fetchAvailableModels() async throws -> [ModelOption] {
-        guard let apiKey = KeychainService.loadAPIKey(), !apiKey.isEmpty else {
+    // Fetch available models from API
+    func fetchAvailableModels() async throws -> [String] {
+        let (apiKey, apiEndpointUrl, _, _, _) = GeminiService.getSettings()
+        
+        guard let apiKey = apiKey, !apiKey.isEmpty else {
             throw APIError.missingApiKey
         }
         
-        let defaults = UserDefaults.standard
-        let endpointString = defaults.string(forKey: "apiEndpointUrlString") ?? "https://generativelanguage.googleapis.com/v1beta/models/"
-        guard let baseUrl = URL(string: endpointString) else {
-            throw APIError.invalidApiEndpoint(endpointString)
+        guard let baseUrl = apiEndpointUrl else {
+            throw APIError.invalidApiEndpoint("Invalid URL configuration")
         }
         
-        // Handle the URL construction properly
-        let modelsUrl: URL
-        if endpointString.hasSuffix("/models/") || endpointString.hasSuffix("/models") {
-            // If the URL already points to the models endpoint, use it directly
-            modelsUrl = baseUrl
-        } else {
-            // Otherwise, append "models" to the base URL
-            modelsUrl = baseUrl.appendingPathComponent("models")
-        }
+        // The base URL already ends with "models/", so we don't append "models" again
+        let modelsUrl = baseUrl
+        var request = URLRequest(url: modelsUrl)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 30.0
         
+        // Use query parameter for API key (consistent with other Gemini API calls)
         var urlComponents = URLComponents(url: modelsUrl, resolvingAgainstBaseURL: false)
         urlComponents?.queryItems = [URLQueryItem(name: "key", value: apiKey)]
         
         guard let finalUrl = urlComponents?.url else {
-            throw APIError.invalidApiEndpoint("Failed to construct models URL")
+            throw APIError.invalidApiEndpoint("Failed to construct URL with API key")
         }
-        
-        var request = URLRequest(url: finalUrl)
-        request.httpMethod = "GET"
+        request.url = finalUrl
         
         let (data, response) = try await URLSession.shared.data(for: request)
         
@@ -62,22 +56,29 @@ class GeminiModelService: ObservableObject {
             throw APIError.networkError(URLError(.badServerResponse))
         }
         
-        guard (200...299).contains(httpResponse.statusCode) else {
-            throw APIError.unknownError(httpResponse.statusCode)
+        // Handle 401 specifically for better error messaging
+        if httpResponse.statusCode == 401 {
+            throw APIError.authenticationError
         }
         
-        let apiResponse = try JSONDecoder().decode(GeminiModelsResponse.self, from: data)
-        let models = convertToModelOptions(apiResponse.models ?? [])
+        guard httpResponse.statusCode == 200 else {
+            throw APIError.serverError(httpResponse.statusCode)
+        }
         
-        // Cache the results
-        await cacheModels(models)
+        let modelsResponse = try JSONDecoder().decode(GeminiModelsResponse.self, from: data)
+        guard let apiModels = modelsResponse.models else {
+            return getDefaultModelIds()
+        }
+        
+        let models = convertToModelIds(apiModels)
+        await cacheModelIds(models)
         
         return models
     }
     
-    // Convert API response to ModelOption format
-    private func convertToModelOptions(_ apiModels: [GeminiModelInfo]) -> [ModelOption] {
-        var models: [ModelOption] = []
+    // Convert API response to model ID strings
+    private func convertToModelIds(_ apiModels: [GeminiModelInfo]) -> [String] {
+        var modelIds: [String] = []
         
         for apiModel in apiModels {
             // Extract model name from the full path (e.g., "models/gemini-2.5-flash" -> "gemini-2.5-flash")
@@ -88,111 +89,55 @@ class GeminiModelService: ObservableObject {
                 continue
             }
             
-            // Try to match with existing enum cases, or create as custom
-            let modelId: AIModelIdentifier
-            let displayName: String
-            let speed: Int
-            let quality: Int
-            
+            // Only include known models
             switch modelName {
-            case "gemini-2.5-flash":
-                modelId = .geminiFlash25
-                displayName = "Gemini 2.5 Flash"
-                speed = 5
-                quality = 5
-            case "gemini-2.5-pro":
-                modelId = .geminiPro25
-                displayName = "Gemini 2.5 Pro"
-                speed = 3
-                quality = 5
-            case "gemini-2.0-flash":
-                modelId = .geminiFlash20
-                displayName = "Gemini 2.0 Flash"
-                speed = 4
-                quality = 4
-            case "gemini-1.5-pro":
-                modelId = .geminiPro15
-                displayName = "Gemini 1.5 Pro"
-                speed = 3
-                quality = 5
-            case "gemini-1.5-flash":
-                modelId = .geminiFlash15
-                displayName = "Gemini 1.5 Flash"
-                speed = 5
-                quality = 3
-            case "gemini-1.5-flash-8b":
-                modelId = .geminiFlash15B
-                displayName = "Gemini 1.5 Flash 8B"
-                speed = 4
-                quality = 4
+            case "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro", "gemini-2.0-flash", 
+                 "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.5-flash-8b":
+                modelIds.append(modelName)
             default:
-                // For unknown models, create a custom entry
-                modelId = .custom
-                displayName = modelName.capitalized.replacingOccurrences(of: "-", with: " ")
-                speed = 3
-                quality = 3
+                // Skip unknown models
+                break
             }
-            
-            models.append(ModelOption(
-                id: modelId,
-                displayName: displayName,
-                speed: speed,
-                quality: quality
-            ))
         }
         
-        // Always add custom option at the end
-        models.append(ModelOption(
-            id: .custom,
-            displayName: "Custom Model",
-            speed: 3,
-            quality: 3
-        ))
-        
-        return models
+        return modelIds
     }
     
-    // Cache models to UserDefaults
+    // Cache model IDs to UserDefaults
     @MainActor
-    private func cacheModels(_ models: [ModelOption]) async {
-        do {
-            let data = try JSONEncoder().encode(models)
-            UserDefaults.standard.set(data, forKey: StorageKeys.cachedModels)
-            UserDefaults.standard.set(true, forKey: StorageKeys.hasInitiallyFetchedModels)
-            
-            // Update published property
-            self.availableModels = models
-        } catch {
-            print("Failed to cache models: \(error)")
-        }
+    private func cacheModelIds(_ modelIds: [String]) async {
+        let data = try? JSONEncoder().encode(modelIds)
+        UserDefaults.standard.set(data, forKey: StorageKeys.cachedModels)
+        UserDefaults.standard.set(true, forKey: StorageKeys.hasInitiallyFetchedModels)
+        
+        // Update published property
+        self.availableModels = modelIds
     }
     
-    // Load cached models
-    func loadCachedModels() -> [ModelOption] {
+    // Load cached model IDs
+    func loadCachedModelIds() -> [String] {
         guard let data = UserDefaults.standard.data(forKey: StorageKeys.cachedModels) else {
-            return getDefaultModels()
+            return getDefaultModelIds()
         }
         
-        do {
-            let models = try JSONDecoder().decode([ModelOption].self, from: data)
-            self.availableModels = models
-            return models
-        } catch {
-            print("Failed to decode cached models: \(error)")
-            return getDefaultModels()
+        guard let modelIds = try? JSONDecoder().decode([String].self, from: data) else {
+            return getDefaultModelIds()
         }
+        
+        self.availableModels = modelIds
+        return modelIds
     }
     
-    // Fallback default models
-    private func getDefaultModels() -> [ModelOption] {
+    // Fallback default model IDs
+    private func getDefaultModelIds() -> [String] {
         return [
-            ModelOption(id: .geminiFlash25, displayName: "Gemini 2.5 Flash", speed: 5, quality: 5),
-            ModelOption(id: .geminiPro25, displayName: "Gemini 2.5 Pro", speed: 3, quality: 5),
-            ModelOption(id: .geminiFlash20, displayName: "Gemini 2.0 Flash", speed: 4, quality: 4),
-            ModelOption(id: .geminiPro15, displayName: "Gemini 1.5 Pro", speed: 3, quality: 5),
-            ModelOption(id: .geminiFlash15, displayName: "Gemini 1.5 Flash", speed: 5, quality: 3),
-            ModelOption(id: .geminiFlash15B, displayName: "Gemini 1.5 Flash 8B", speed: 4, quality: 4),
-            ModelOption(id: .custom, displayName: "Custom Model", speed: 3, quality: 3)
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite", 
+            "gemini-2.5-pro",
+            "gemini-2.0-flash",
+            "gemini-1.5-pro",
+            "gemini-1.5-flash",
+            "gemini-1.5-flash-8b"
         ]
     }
 }
@@ -223,43 +168,10 @@ struct GeminiModelInfo: Codable {
     }
 }
 
-// Make ModelOption Codable for caching
-extension ModelOption: Codable {
-    enum CodingKeys: String, CodingKey {
-        case id, displayName, speed, quality
-    }
-    
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let idString = try container.decode(String.self, forKey: .id)
-        self.id = AIModelIdentifier(rawValue: idString) ?? .custom
-        self.displayName = try container.decode(String.self, forKey: .displayName)
-        self.speed = try container.decode(Int.self, forKey: .speed)
-        self.quality = try container.decode(Int.self, forKey: .quality)
-    }
-    
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(id.rawValue, forKey: .id)
-        try container.encode(displayName, forKey: .displayName)
-        try container.encode(speed, forKey: .speed)
-        try container.encode(quality, forKey: .quality)
-    }
-}
-
 // MARK: - Existing GeminiService class continues below...
 class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
     // Track if connection has been verified to avoid redundant warm-ups
     private static var connectionVerified = false
-
-    // Constants for UserDefaults keys (matching SettingsView)
-    private enum StorageKeys {
-        static let selectedModelId = "selectedModelId"
-        static let customModelName = "customModelName"
-        static let userPrompt = "userPrompt"
-        static let apiEndpoint = "apiEndpointUrlString"
-        static let draftsTag = "draftsTag" // Added key for Drafts tag
-    }
 
     // Defaults
     private let defaultModelId = "gemini-2.5-flash" // Default model if nothing is set
@@ -267,28 +179,28 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
     private static let defaultApiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/"
     private let defaultDraftsTag = "notebook"
 
-    private let highMaxImageDimension: CGFloat = 2048.0 // Max dimension for high res
+    private let highMaxImageDimension: CGFloat = 1500.0 // Set to 1500px as requested
     
     // Retry configuration
-    private let maxRetryAttempts = 3
-    private let initialRetryDelay: TimeInterval = 1.0 // 1 second initial delay
+    private let maxRetryAttempts = 2 // Reduced from 3 for faster failure detection
+    private let initialRetryDelay: TimeInterval = 0.5 // Reduced from 1.0 for faster retries
 
     // Instantiate the shared preprocessor - RENAME to ImageProcessor
     private let imageProcessor = ImageProcessor()
 
     // Helper to get settings from UserDefaults
-    private func getSettings() -> (apiKey: String?, apiEndpointUrl: URL?, modelToUse: String?, prompt: String, draftsTag: String) {
+    static func getSettings() -> (apiKey: String?, apiEndpointUrl: URL?, modelToUse: String?, prompt: String, draftsTag: String) {
         let defaults = UserDefaults.standard
 
         let apiKey = KeychainService.loadAPIKey()
 
-        let endpointString = defaults.string(forKey: StorageKeys.apiEndpoint) ?? GeminiService.defaultApiEndpoint
+        let endpointString = defaults.string(forKey: "apiEndpointUrlString") ?? GeminiService.defaultApiEndpoint
         let apiEndpointUrl = URL(string: endpointString)
 
-        let selectedId = defaults.string(forKey: StorageKeys.selectedModelId) ?? defaultModelId
+        let selectedId = defaults.string(forKey: "selectedModelId") ?? "gemini-2.5-flash"
         var modelToUse: String?
         if selectedId == "Custom" {
-            modelToUse = defaults.string(forKey: StorageKeys.customModelName)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            modelToUse = defaults.string(forKey: "customModelName")?.trimmingCharacters(in: .whitespacesAndNewlines)
         } else {
             modelToUse = selectedId
         }
@@ -296,8 +208,8 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
             modelToUse = nil // Treat empty custom model as invalid
         }
 
-        let prompt = defaults.string(forKey: StorageKeys.userPrompt) ?? defaultPrompt
-        let draftsTag = defaults.string(forKey: StorageKeys.draftsTag) ?? defaultDraftsTag
+        let prompt = defaults.string(forKey: "userPrompt") ?? "Extract text accurately from this image of a notebook page."
+        let draftsTag = defaults.string(forKey: "draftsTag") ?? "notebook"
 
         return (apiKey, apiEndpointUrl, modelToUse, prompt, draftsTag)
     }
@@ -315,7 +227,7 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
         let defaults = UserDefaults.standard
         let apiKey = KeychainService.loadAPIKey()
 
-        let endpointString = defaults.string(forKey: StorageKeys.apiEndpoint) ?? defaultApiEndpoint
+        let endpointString = defaults.string(forKey: "apiEndpointUrlString") ?? defaultApiEndpoint
         guard let apiBaseUrl = URL(string: endpointString) else {
             print("GeminiService (WarmUp): Invalid API Endpoint URL configured: \(endpointString)")
             return false
@@ -327,7 +239,8 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
         }
 
         // Use a lightweight endpoint, like listing models
-        let warmUpUrl = apiBaseUrl.appendingPathComponent("models")
+        // The base URL already ends with "models/", so we don't append "models" again
+        let warmUpUrl = apiBaseUrl
         var request = URLRequest(url: warmUpUrl)
         request.httpMethod = "GET" // Typically, listing models is a GET request
 
@@ -415,7 +328,16 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
     }
     
     private func attemptExtractText(from imageData: Data) async throws -> String {
-        let settings = getSettings()
+        // Create UIImage from data and delegate to optimized method
+        guard let originalUIImage = UIImage(data: imageData) else {
+            throw PreprocessingError.invalidImageData
+        }
+        return try await attemptExtractText(from: originalUIImage)
+    }
+    
+    // MARK: - Optimized method for pre-processed images
+    private func attemptExtractText(from originalUIImage: UIImage) async throws -> String {
+        let settings = GeminiService.getSettings()
 
         guard let apiKey = settings.apiKey, !apiKey.isEmpty else {
             throw APIError.missingApiKey
@@ -428,24 +350,19 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
         }
         let prompt = settings.prompt
         // Quality setting is not currently user-configurable, use a default
-        let heicQuality: CGFloat = 0.4 // Renamed for clarity, using same default quality
+        let heicQuality: CGFloat = 0.5 // Set to 0.5 as requested
 
         // 1. Prepare Image using the new ImageProcessor workflow
         let preparedImageData: Data
         do {
-            // a. Create UIImage from original data
-            guard let originalUIImage = UIImage(data: imageData) else {
-                throw PreprocessingError.invalidImageData
-            }
-
-            // b. Use the high resolution max dimension
+            // Use the high resolution max dimension
             let maxDimension = highMaxImageDimension
             print("GeminiService: Using max image dimension: \(maxDimension)")
 
-            // c. Resize the UIImage using the Core Image based method
+            // Resize the UIImage using the Core Image based method
             let resizedUIImage = try imageProcessor.resizeImage(originalUIImage, maxDimension: maxDimension)
 
-            // d. Encode the resized UIImage to HEIC
+            // Encode the resized UIImage to HEIC
             preparedImageData = try imageProcessor.encodeToHEICData(resizedUIImage, compressionQuality: heicQuality)
 
         } catch let error as PreprocessingError {
@@ -464,6 +381,7 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
 
         request.httpMethod = "POST"
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 30.0 // Add 30-second timeout to prevent hanging requests
         // Add API Key
         // Note: Ensure the key placement (header vs query param) matches the API requirements
         // Using query parameter for simplicity, header is often preferred.
@@ -480,8 +398,6 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
         do {
             let jsonData = try JSONEncoder().encode(requestBody)
             request.httpBody = jsonData
-            // print("Using Endpoint: \(finalUrl.absoluteString)") // Debugging
-            // print("Request Body JSON: \(String(data: jsonData, encoding: .utf8) ?? "Invalid JSON")") // Debugging
         } catch {
             throw APIError.requestEncodingFailed(error)
         }
@@ -562,6 +478,11 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
         }
     }
 
+    // MARK: - Optimized method for pre-processed images
+    func extractText(from processedImage: UIImage) async throws -> String {
+        return try await attemptExtractText(from: processedImage)
+    }
+
     // MARK: - Request Body Construction
 
     private func createRequestBody(prompt: String, base64Image: String) -> GeminiRequest {
@@ -605,6 +526,7 @@ struct GeminiRequest: Codable {
     }
 
     let contents: [Content]
+    // thinkingBudget not supported in current API version
 }
 
 struct GeminiResponse: Codable {

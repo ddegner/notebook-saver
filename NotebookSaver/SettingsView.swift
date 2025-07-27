@@ -2,39 +2,6 @@ import SwiftUI
 import UIKit // For UIResponder keyboard notifications
 import Foundation // For NotificationCenter, keep if needed
 
-// Enum for AI Model Identifiers
-enum AIModelIdentifier: String, CaseIterable, Identifiable {
-    case geminiFlash25 = "gemini-2.5-flash"
-    case geminiPro25 = "gemini-2.5-pro"
-    case geminiFlash20 = "gemini-2.0-flash"
-    case geminiPro15 = "gemini-1.5-pro"
-    case geminiFlash15 = "gemini-1.5-flash"
-    case geminiFlash15B = "gemini-1.5-flash-8b"
-    case custom = "Custom"
-
-    var id: String { self.rawValue } // For Identifiable conformance if needed directly on rawValue
-
-    var displayName: String { // Provides a default display name if not overridden
-        switch self {
-        case .geminiFlash25: return "Gemini 2.5 Flash"
-        case .geminiPro25: return "Gemini 2.5 Pro"
-        case .geminiFlash20: return "Gemini 2.0 Flash"
-        case .geminiPro15: return "Gemini 1.5 Pro"
-        case .geminiFlash15: return "Gemini 1.5 Flash"
-        case .geminiFlash15B: return "Gemini 1.5 Flash 8B"
-        case .custom: return "Custom Model"
-        }
-    }
-}
-
-// Simple struct to hold display name and ID for picker
-struct ModelOption: Identifiable, Hashable {
-    let id: AIModelIdentifier // Use model ID or "Custom" as the identifier
-    let displayName: String
-    let speed: Int // 1-5 scale
-    let quality: Int // 1-5 scale
-}
-
 // Enum for Vision Recognition Level
 enum VisionRecognitionLevel: String, CaseIterable, Identifiable {
     case accurate = "accurate"
@@ -73,32 +40,6 @@ enum SettingsTab: Int, CaseIterable, Identifiable {
     }
 }
 
-// ViewModifier for common card styling
-struct CardBackgroundModifier: ViewModifier {
-    var isSelected: Bool = false
-    var isError: Bool = false // Not used for model cards per spec, but kept for flexibility
-
-    func body(content: Content) -> some View {
-        content
-            .padding(10) // Common padding, can be parameterized if needed
-            .background(
-                RoundedRectangle(cornerRadius: 8) // Common corner radius
-                    .fill(isSelected ? Color.orangeTabbyLight.opacity(0.9) : Color.white.opacity(0.8))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(isError ? Color.red : (isSelected ? Color.orangeTabbyAccent : Color.orangeTabbyDark.opacity(0.2)), lineWidth: isSelected ? 2 : 1)
-            )
-    }
-}
-
-// Extension to make the CardBackgroundModifier easier to use
-extension View {
-    func cardStyled(isSelected: Bool = false, isError: Bool = false) -> some View {
-        self.modifier(CardBackgroundModifier(isSelected: isSelected, isError: isError))
-    }
-}
-
 // Add the new Color extensions here
 extension Color {
     static let orangeTabbyBackground = Color(red: 1.0, green: 0.65, blue: 0.2) // Vibrant orange background to match image
@@ -106,35 +47,6 @@ extension Color {
     static let orangeTabbyLight = Color(red: 1.0, green: 0.8, blue: 0.5) // Light peachy orange for input fields
     static let orangeTabbyAccent = Color(red: 0.8, green: 0.4, blue: 0.05) // Deep orange for accents
     static let orangeTabbyText = Color(red: 0.2, green: 0.1, blue: 0.05) // Very dark brown text for contrast
-}
-
-// Custom Segmented Picker View
-struct CustomSegmentedPicker<Data, Content>: View where Data: RandomAccessCollection, Data.Element: Hashable, Content: View {
-    @Binding var selection: Data.Element
-    let items: Data
-    let content: (Data.Element, Bool) -> Content // Closure to define the content for each segment
-
-    var body: some View {
-        HStack(spacing: 0) { // No spacing between buttons
-            ForEach(items, id: \.self) { item in
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        selection = item
-                    }
-                }) {
-                    content(item, selection == item)
-                        .padding(.vertical, 10)
-                        .frame(maxWidth: .infinity)
-                        .background(selection == item ? Color.orangeTabbyDark : Color.clear) // Corrected: Dark orange if selected
-                        .foregroundColor(selection == item ? Color.white : Color.orangeTabbyText) // Corrected: White text if selected
-                        .cornerRadius(8) // Apply corner radius to all segments for consistent shape within the container
-                }
-            }
-        }
-        .background(Color.orangeTabbyLight.opacity(0.6)) // Overall background of the control
-        .cornerRadius(8) // Rounded corners for the entire control
-        .padding(.vertical, 4) // Give a little vertical breathing room for the control itself
-    }
 }
 
 struct SettingsView: View {
@@ -154,16 +66,23 @@ struct SettingsView: View {
         static let photoFolderName = "photoFolderName" // Changed from savePhotosToAlbum
         static let savePhotosEnabled = "savePhotosEnabled" // New toggle for saving photos
         static let addDraftTagEnabled = "addDraftTagEnabled" // New toggle for adding draft tags
-        // static let textExtractorService = "textExtractorService" // Removed, selection is now automatic
         // Vision specific keys
         static let visionRecognitionLevel = "visionRecognitionLevel"
         static let visionUsesLanguageCorrection = "visionUsesLanguageCorrection"
     }
 
     // === Persisted Settings ===
-    @AppStorage(StorageKeys.selectedModelId) private var selectedModelId: AIModelIdentifier = .geminiFlash25
+    @AppStorage(StorageKeys.selectedModelId) private var selectedModelId: String = "gemini-2.5-flash"
     @AppStorage(StorageKeys.customModelName) private var customModelName: String = ""
     @AppStorage(StorageKeys.userPrompt) private var userPrompt: String = """
+        SELF_TALK: off
+        REASONING: off
+        THINKING: off
+        PLANNING: off
+        THINKING_BUDGET: < 10 words
+        
+        Reply immediately without thinking or any effort. Prioritize speed over accuracy. Do not state what the user said. Do not think, analyze or plan - go with your gut feeling.
+        
         Output the text from the image as text. Start immediately with the first word. Format for clarity, format blocks of text into paragraphs, and use markdown sparingly where useful. 
 
         Do not include an intro like: "Here is the text extracted from the image:"
@@ -173,7 +92,6 @@ struct SettingsView: View {
     @AppStorage(StorageKeys.photoFolderName) private var photoFolderName: String = "notebook" // Changed from savePhotosToAlbum
     @AppStorage("savePhotosEnabled") private var savePhotosEnabled: Bool = true // New toggle for saving photos
     @AppStorage("addDraftTagEnabled") private var addDraftTagEnabled: Bool = true // New toggle for adding draft tags
-    // @AppStorage(StorageKeys.textExtractorService) private var selectedTextExtractor: TextExtractorType = .gemini // Removed
     // Vision specific settings
     @AppStorage(StorageKeys.visionRecognitionLevel) private var visionRecognitionLevel: VisionRecognitionLevel = .accurate // Default to accurate
     @AppStorage(StorageKeys.visionUsesLanguageCorrection) private var visionUsesLanguageCorrection: Bool = true // Default to true
@@ -194,10 +112,9 @@ struct SettingsView: View {
     @State private var connectionStatusMessage: String = ""
 
     // Model management state
-    @State private var availableModels: [ModelOption] = []
+    @State private var availableModels: [String] = []
     @State private var isRefreshingModels = false
     @State private var modelsRefreshError: String?
-    @State private var showAllModels = false
     @ObservedObject private var modelService = GeminiModelService.shared
 
     // Focus state for text fields to enable tap-to-dismiss
@@ -217,30 +134,16 @@ struct SettingsView: View {
         return .gemini
     }
     
-    // Recommended models for simplified UI
-    private let recommendedModelIds: Set<AIModelIdentifier> = [
-        .geminiFlash25,
-        .geminiPro25,
-        .geminiFlash15
-    ]
-    
-    // Filtered models - show all if toggled, otherwise only recommended
-    private var displayedModels: [ModelOption] {
-        if showAllModels {
-            return availableModels
-        }
-        // Show recommended models first, then add custom if it's selected but not in recommended
-        let recommended = availableModels.filter { recommendedModelIds.contains($0.id) }
+    // All available models, plus Custom if it's currently selected
+    private var displayedModels: [String] {
+        var models = availableModels.filter { $0 != "Custom" }
         
-        // If current selection is custom or not in recommended, make sure it's included
-        if selectedModelId == .custom || (!recommendedModelIds.contains(selectedModelId) && !recommended.contains { $0.id == selectedModelId }) {
-            let currentModel = availableModels.first { $0.id == selectedModelId }
-            if let current = currentModel, !recommended.contains(where: { $0.id == current.id }) {
-                return recommended + [current]
-            }
+        // If current selection is Custom, include it in the list
+        if selectedModelId == "Custom" {
+            models.append("Custom")
         }
         
-        return recommended
+        return models
     }
 
     // Sample prompts
@@ -370,6 +273,7 @@ struct SettingsView: View {
         .onDisappear {
             removeKeyboardObservers()
         }
+        .dismissKeyboardOnTap()
     }
 
     // MARK: - Keyboard Handling
@@ -525,9 +429,6 @@ struct SettingsView: View {
         }
         .animation(.easeInOut(duration: 0.3), value: addDraftTagEnabled)
         .animation(.easeInOut(duration: 0.3), value: savePhotosEnabled)
-        .onTapGesture {
-            dismissAllKeyboards()
-        }
         }
     }
 
@@ -604,9 +505,6 @@ struct SettingsView: View {
             .padding(.bottom, keyboardHeight)
         }
         .animation(.easeInOut, value: currentTextExtractorType) // Animate changes when Vision section appears/disappears
-        .onTapGesture {
-            dismissAllKeyboards()
-        }
         }
     }
 
@@ -743,9 +641,6 @@ struct SettingsView: View {
             .padding(.horizontal)
             .padding(.vertical)
         }
-        .onTapGesture {
-            dismissAllKeyboards()
-        }
     }
 
     // MARK: - Section Views
@@ -775,10 +670,10 @@ struct SettingsView: View {
             HStack(spacing: 12) {
                 // Replace ScrollView with Picker dropdown
                 Picker("Select AI Model", selection: $selectedModelId) {
-                    ForEach(displayedModels) { model in
-                        Text(model.displayName)
+                    ForEach(displayedModels, id: \.self) { model in
+                        Text(model)
                             .foregroundColor(Color.black)
-                            .tag(model.id)
+                            .tag(model)
                     }
                 }
                 .pickerStyle(MenuPickerStyle())
@@ -817,11 +712,11 @@ struct SettingsView: View {
                 .disabled(isRefreshingModels || apiKey.isEmpty)
             }
             
-            // Toggle to show all models or only recommended
+            // Custom model option
             HStack {
                 Spacer()
-                Button(action: { showAllModels.toggle() }) {
-                    Text(showAllModels ? "Show Recommended Only" : "Show All Models")
+                Button(action: { selectedModelId = "Custom" }) {
+                    Text("Custom Model")
                         .font(.caption)
                         .foregroundColor(Color.orangeTabbyAccent)
                         .padding(.vertical, 4)
@@ -834,7 +729,7 @@ struct SettingsView: View {
                 .buttonStyle(PlainButtonStyle())
             }
             
-            if selectedModelId == .custom {
+            if selectedModelId == "Custom" {
                 TextField("Custom Model ID (e.g. gemini-custom-001)", text: $customModelName)
                     .disableAutocorrection(true)
                     .focused($isCustomModelFocused)
@@ -853,9 +748,9 @@ struct SettingsView: View {
                     // .cardStyled(isError: customModelName.isEmpty && selectedModelId == .custom) // Apply explicit styling for consistency
                     .padding(10)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Color.orangeTabbyLight.opacity(0.7)))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(isCustomModelFocused ? Color.orangeTabbyAccent : (customModelName.isEmpty && selectedModelId == .custom ? Color.red : Color.orangeTabbyDark.opacity(0.4)), lineWidth: isCustomModelFocused || (customModelName.isEmpty && selectedModelId == .custom) ? 2 : 1))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(isCustomModelFocused ? Color.orangeTabbyAccent : (customModelName.isEmpty && selectedModelId == "Custom" ? Color.red : Color.orangeTabbyDark.opacity(0.4)), lineWidth: isCustomModelFocused || (customModelName.isEmpty && selectedModelId == "Custom") ? 2 : 1))
                     .foregroundColor(Color.orangeTabbyText)
-                if customModelName.isEmpty && selectedModelId == .custom { // Ensure error text is visible
+                if customModelName.isEmpty && selectedModelId == "Custom" { // Ensure error text is visible
                     Text("Custom model name is required")
                         .font(.caption)
                         .foregroundColor(.red) // Error color remains red
@@ -970,15 +865,7 @@ struct SettingsView: View {
 
     // MARK: - Helper Functions
 
-    // Dismiss all keyboards
-    private func dismissAllKeyboards() {
-        isPromptFocused = false
-        isApiKeyFocused = false
-        isDraftsTagFocused = false
-        isPhotoFolderFocused = false
-        isCustomModelFocused = false
-        isApiEndpointFocused = false
-    }
+
 
     // Load API key from keychain
     private func loadAPIKey() {
@@ -1036,10 +923,7 @@ struct SettingsView: View {
 
     // Reset settings to defaults
     private func resetToDefaults() {
-        // Also reset the text extractor service
-        // selectedTextExtractor = .gemini // Removed as it's now dynamic
-
-        selectedModelId = .geminiFlash25
+        selectedModelId = "gemini-2.5-flash"
         customModelName = ""
         userPrompt = """
             Output the text from the image as text. Start immediately with the first word. \
@@ -1072,7 +956,12 @@ struct SettingsView: View {
     // Function to initialize available models
     private func initializeModels() {
         // Load cached models
-        availableModels = modelService.loadCachedModels()
+        loadInitialModels()
+    }
+    
+    private func loadInitialModels() {
+        let stringModels = modelService.loadCachedModelIds()
+        availableModels = stringModels
     }
     
     // Function to refresh models from API
@@ -1084,14 +973,27 @@ struct SettingsView: View {
         
         isRefreshingModels = true
         modelsRefreshError = nil
+        print("Refreshing models with API key: \(apiKey.prefix(10))...")
         
         Task {
             do {
-                let models = try await modelService.fetchAvailableModels()
+                let stringModels = try await modelService.fetchAvailableModels()
                 await MainActor.run {
-                    self.availableModels = models
+                    self.availableModels = stringModels
                     self.isRefreshingModels = false
-                    print("Successfully refreshed \(models.count) models")
+                    print("Successfully refreshed \(availableModels.count) models")
+                }
+            } catch APIError.authenticationError {
+                await MainActor.run {
+                    self.modelsRefreshError = "Authentication failed. Please check your API key in Settings."
+                    self.isRefreshingModels = false
+                    print("Authentication failed - invalid API key")
+                }
+            } catch APIError.missingApiKey {
+                await MainActor.run {
+                    self.modelsRefreshError = "API key is missing. Please add it in Settings."
+                    self.isRefreshingModels = false
+                    print("Missing API key")
                 }
             } catch {
                 await MainActor.run {

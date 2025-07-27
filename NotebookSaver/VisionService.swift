@@ -39,30 +39,20 @@ class VisionService: ImageTextExtractor {
     // private let ciContext = CIContext()
 
     func extractText(from imageData: Data) async throws -> String {
-        // 1. Prepare CGImage directly from input data
-        let cgImage: CGImage
-        do {
-            // a. Create UIImage from original data
-            guard let uiImage = UIImage(data: imageData) else {
-                // Use the PreprocessingError enum directly or define a Vision-specific one
-                throw PreprocessingError.invalidImageData // Reusing the enum from ImageProcessor for consistency
-            }
-
-            // b. Get CGImage from UIImage
-            guard let imageToProcess = uiImage.cgImage else {
-                // Throw an error if CGImage cannot be obtained
-                throw VisionError.preprocessingError(PreprocessingError.invalidImageData) // Wrap in VisionError
-            }
-            cgImage = imageToProcess
-            print("VisionService: Created CGImage directly from input imageData.")
-
-        } catch let error as PreprocessingError {
-            // Wrap PreprocessingError if thrown directly
-            throw VisionError.preprocessingError(error)
-        } catch {
-            // Catch any other unexpected error during UIImage/CGImage creation
-            throw VisionError.preprocessingError(PreprocessingError.invalidImageData) // Assuming failure means invalid data
+        // Create UIImage from data and delegate to optimized method
+        guard let uiImage = UIImage(data: imageData) else {
+            throw PreprocessingError.invalidImageData
         }
+        return try await extractText(from: uiImage)
+    }
+    
+    // MARK: - Optimized method for pre-processed images
+    func extractText(from processedImage: UIImage) async throws -> String {
+        // 1. Get CGImage directly from processed UIImage
+        guard let cgImage = processedImage.cgImage else {
+            throw VisionError.preprocessingError(PreprocessingError.invalidImageData)
+        }
+        print("VisionService: Using pre-processed UIImage directly.")
 
         // 2. Create a Vision Request (VNRecognizeTextRequest)
         let textRecognitionRequest = VNRecognizeTextRequest { (_, error) in
