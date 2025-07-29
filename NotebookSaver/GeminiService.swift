@@ -25,7 +25,7 @@ class GeminiModelService: ObservableObject {
     
     // Fetch available models from API
     func fetchAvailableModels() async throws -> [String] {
-        let (apiKey, apiEndpointUrl, _, _, _) = GeminiService.getSettings()
+        let (apiKey, apiEndpointUrl, _, _, _, _) = GeminiService.getSettings()
         
         guard let apiKey = apiKey, !apiKey.isEmpty else {
             throw APIError.missingApiKey
@@ -189,7 +189,7 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
     private let imageProcessor = ImageProcessor()
 
     // Helper to get settings from UserDefaults
-    static func getSettings() -> (apiKey: String?, apiEndpointUrl: URL?, modelToUse: String?, prompt: String, draftsTag: String) {
+    static func getSettings() -> (apiKey: String?, apiEndpointUrl: URL?, modelToUse: String?, prompt: String, draftsTag: String, thinkingEnabled: Bool) {
         let defaults = UserDefaults.standard
 
         let apiKey = KeychainService.loadAPIKey()
@@ -210,8 +210,9 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
 
         let prompt = defaults.string(forKey: "userPrompt") ?? "Extract text accurately from this image of a notebook page."
         let draftsTag = defaults.string(forKey: "draftsTag") ?? "notebook"
+        let thinkingEnabled = defaults.bool(forKey: "thinkingEnabled")
 
-        return (apiKey, apiEndpointUrl, modelToUse, prompt, draftsTag)
+        return (apiKey, apiEndpointUrl, modelToUse, prompt, draftsTag, thinkingEnabled)
     }
 
     // MARK: - Connection Warming
@@ -338,7 +339,24 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
         guard let model = settings.modelToUse else {
             throw APIError.missingModelConfiguration
         }
-        let prompt = settings.prompt
+        let basePrompt = settings.prompt
+        let thinkingEnabled = settings.thinkingEnabled
+        
+        // Add thinking directives to the prompt if thinking is enabled
+        let prompt: String
+        if thinkingEnabled {
+            prompt = """
+                THINKING: on
+                REASONING: on
+                PLANNING: on
+                
+                Take time to think through the image carefully. Analyze the content thoroughly and provide thoughtful, accurate text extraction.
+                
+                \(basePrompt)
+                """
+        } else {
+            prompt = basePrompt
+        }
         // Quality setting is not currently user-configurable, use a default
         let heicQuality: CGFloat = 0.5 // Set to 0.5 as requested
 

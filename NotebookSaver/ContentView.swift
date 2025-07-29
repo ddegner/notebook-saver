@@ -23,13 +23,12 @@ struct ContentView: View {
                     )
                     .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: -5)
                     .padding(.top, 80) // Add padding so tabs are visible when camera slides up
-                    .clipped() // Ensure content doesn't overflow
                 
                 // Camera View - slides up and down
                 CameraView(isShowingSettings: $isShowingSettings)
                     .frame(width: geometry.size.width, height: geometry.size.height)
                     .offset(y: cameraOffset + dragOffset)
-                    .shadow(color: .black.opacity(0.4), radius: 20, x: 0, y: 10)
+                    .shadow(color: .black.opacity(0.30), radius: 12, x: 0, y: 6)
             }
             .gesture(
                 DragGesture()

@@ -51,8 +51,15 @@ struct CameraView: View {
                     bottomSafeArea: bottomSafeArea
                 )
             }
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .path(in: CGRect(x: 0, y: 0, width: geometry.size.width, height: geometry.size.height)))
+            .clipShape(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 22,
+                    bottomLeadingRadius: 40,
+                    bottomTrailingRadius: 40,
+                    topTrailingRadius: 22,
+                    style: .continuous
+                )
+            )
             .edgesIgnoringSafeArea(.all)
             .persistentSystemOverlays(.hidden)
         }
@@ -314,7 +321,16 @@ extension CameraView {
     private func extractTextFromProcessedImage(_ processedImage: UIImage) async throws -> String {
         let defaults = UserDefaults.standard
         let selectedServiceRaw = defaults.string(forKey: "textExtractorService") ?? TextExtractorType.gemini.rawValue
-        let selectedService = TextExtractorType(rawValue: selectedServiceRaw) ?? .gemini
+        var selectedService = TextExtractorType(rawValue: selectedServiceRaw) ?? .gemini
+
+        // Check if Gemini is properly configured, fallback to Vision if not
+        if selectedService == .gemini {
+            let apiKey = KeychainService.loadAPIKey()
+            if apiKey?.isEmpty ?? true {
+                print("Gemini selected but API key is missing, falling back to Vision")
+                selectedService = .vision
+            }
+        }
 
         print("Selected Text Extractor: \(selectedService.rawValue)")
 
@@ -335,8 +351,9 @@ extension CameraView {
     }
     
     private func savePhotoIfNeeded(image: UIImage) async throws -> URL? {
+        let savePhotosEnabled = UserDefaults.standard.bool(forKey: "savePhotosEnabled")
         let photoFolder = UserDefaults.standard.string(forKey: "photoFolderName") ?? "notebook"
-        let shouldSavePhoto = !photoFolder.isEmpty
+        let shouldSavePhoto = savePhotosEnabled && !photoFolder.isEmpty
         
         guard shouldSavePhoto else { return nil }
         

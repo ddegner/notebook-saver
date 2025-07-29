@@ -75,17 +75,7 @@ struct SettingsView: View {
     // === Persisted Settings ===
     @AppStorage(StorageKeys.selectedModelId) private var selectedModelId: String = "gemini-2.5-flash"
     @AppStorage(StorageKeys.userPrompt) private var userPrompt: String = """
-        SELF_TALK: off
-        REASONING: off
-        THINKING: off
-        PLANNING: off
-        THINKING_BUDGET: < 10 words
-        
-        Reply immediately without thinking or any effort. Prioritize speed over accuracy. Do not state what the user said. Do not think, analyze or plan - go with your gut feeling.
-        
-        Output the text from the image as text. Start immediately with the first word. Format for clarity, format blocks of text into paragraphs, and use markdown sparingly where useful. 
-
-        Do not include an intro like: "Here is the text extracted from the image:"
+        Output the text from the image as text. Start immediately with the first word. Format for clarity, format blocks of text into paragraphs, and use markdown sparingly where useful. Usually sentences and paragraphs will make sense. Do not include an intro like: "Here is the text extracted from the image:"
         """
     @AppStorage(StorageKeys.apiEndpointUrlString) private var apiEndpointUrlString: String = "https://generativelanguage.googleapis.com/v1beta/models/"
     @AppStorage(StorageKeys.draftsTag) private var draftsTag: String = "notebook"
@@ -97,6 +87,8 @@ struct SettingsView: View {
     @AppStorage(StorageKeys.visionUsesLanguageCorrection) private var visionUsesLanguageCorrection: Bool = true // Default to true
     // AI thinking toggle
     @AppStorage(StorageKeys.thinkingEnabled) private var thinkingEnabled: Bool = false // Default to false (thinking off)
+    // Text extraction service selection
+    @AppStorage("textExtractorService") private var textExtractorService: String = TextExtractorType.gemini.rawValue
 
     // === State for API Key (using Keychain) ===
     @State private var apiKey: String = ""
@@ -129,13 +121,9 @@ struct SettingsView: View {
     // State to track AI tab layout refresh
     @State private var aiTabLayoutId = UUID()
 
-    // === Computed property for dynamic AI service selection ===
-    private var currentTextExtractorType: TextExtractorType {
-        // Fallback to Vision if API key is missing or connection test failed
-        if apiKey.isEmpty || connectionStatus == .failure {
-            return .vision
-        }
-        return .gemini
+    // Check if Gemini service is properly configured
+    private var isGeminiConfigured: Bool {
+        return !apiKey.isEmpty && connectionStatus != .failure
     }
     
     // All available models
@@ -149,6 +137,7 @@ struct SettingsView: View {
     ]
 
     @State private var showOnboarding = false
+    @State private var showResetConfirmation = false
     
     // Computed property for dynamic API key placeholder text
     private var apiKeyPlaceholderText: String {
@@ -183,31 +172,33 @@ struct SettingsView: View {
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
-                // Add padding at the top so tabs are visible when camera slides up
+                // Add padding at the top so content doesn't get cut off by camera
                 Spacer()
-                    .frame(height: 50) // Reduced space for the camera's bottom portion
+                    .frame(height: 20) // Minimal space for the camera's bottom portion
                 
-                // Tab content - using conditional views instead of TabView for proper scrolling
-                Group {
-                    switch selectedTab {
-                    case .general:
-                        generalTabView
-                    case .ai:
-                        aiTabView
-                    case .about:
-                        aboutTabView
-                    }
+                // Tab content with swiping motion using TabView
+                TabView(selection: $selectedTab) {
+                    aiTabView
+                        .tag(SettingsTab.ai)
+                    
+                    generalTabView
+                        .tag(SettingsTab.general)
+                    
+                    aboutTabView
+                        .tag(SettingsTab.about)
                 }
-                .transition(.opacity)
-                .animation(.easeInOut(duration: 0.2), value: selectedTab)
+                .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
+                .animation(.easeInOut(duration: 0.3), value: selectedTab)
                 .frame(maxHeight: .infinity) // Allow content to expand
 
                 
                 // Custom tab selector - moved to bottom with enhanced 3D styling
                 HStack(spacing: 0) {
-                    ForEach(Array(SettingsTab.allCases.enumerated()), id: \.element) { index, tab in
+                    // Ensure tabs are in the correct order: AI / General / About
+                    ForEach([SettingsTab.ai, SettingsTab.general, SettingsTab.about], id: \.self) { tab in
+                        let index = [SettingsTab.ai, SettingsTab.general, SettingsTab.about].firstIndex(of: tab) ?? 0
                         Button(action: {
-                            withAnimation(.easeInOut(duration: 0.2)) {
+                            withAnimation(.easeInOut(duration: 0.3)) {
                                 selectedTab = tab
                                 // Force AI tab layout refresh when switching to AI tab
                                 if tab == .ai {
@@ -240,7 +231,7 @@ struct SettingsView: View {
                         .padding(.horizontal, 4)
                         
                         // Add vertical divider between tabs (but not after the last one)
-                        if index < SettingsTab.allCases.count - 1 {
+                        if index < 2 { // Since we have 3 tabs (AI, General, About)
                             Rectangle()
                                 .fill(Color.orangeTabbyDark.opacity(0.5))
                                 .frame(width: 1, height: 40)
@@ -330,6 +321,9 @@ struct SettingsView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
+                    // Add top padding to prevent content from being cut off by camera
+                    Spacer()
+                        .frame(height: 20)
                 // Add tag to draft toggle - horizontal layout
                 HStack(spacing: 16) {
                     Text("Add Tag To Draft")
@@ -445,86 +439,100 @@ struct SettingsView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    // AI Instruction Prompt - Always show for Gemini configuration
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Prompt")
-                            .font(.headline)
-                            .foregroundColor(Color.orangeTabbyText.opacity(0.7))
-                        
-                        TextEditor(text: $userPrompt)
-                            .frame(minHeight: 100, idealHeight: 150, maxHeight: 200)
-                            .scrollContentBackground(.hidden)
-                            .padding(10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color.orangeTabbyLight.opacity(0.7))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .stroke(isPromptFocused ? Color.orangeTabbyAccent : Color.orangeTabbyDark.opacity(0.4), lineWidth: isPromptFocused ? 2 : 1)
+                    // Add top padding to prevent content from being cut off by camera
+                    Spacer()
+                        .frame(height: 20)
+                    // Service Selection - simple segmented control
+                    HStack(spacing: 0) {
+                        ForEach(TextExtractorType.allCases, id: \.rawValue) { service in
+                            Button(action: {
+                                textExtractorService = service.rawValue
+                            }) {
+                                Text(service.rawValue)
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundColor(textExtractorService == service.rawValue ? .white : Color.orangeTabbyText.opacity(0.7))
+                                    .padding(.vertical, 8)
+                                    .padding(.horizontal, 12)
+                                    .frame(maxWidth: .infinity)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .fill(textExtractorService == service.rawValue ? Color.orangeTabbyDark : Color.clear)
                                     )
-                            )
-                            .focused($isPromptFocused)
-                            .onSubmit { isPromptFocused = false }
-                            .id("promptEditor")
-                            .onChange(of: isPromptFocused) { _, focused in
-                                if focused {
-                                    // Add a small delay to ensure keyboard is shown first
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                        withAnimation(.easeInOut(duration: 0.3)) {
-                                            proxy.scrollTo("promptEditor", anchor: .top)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                    .padding(4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.orangeTabbyLight.opacity(0.6))
+                    )
+                    
+                    // Show different content based on selected service
+                    if textExtractorService == TextExtractorType.gemini.rawValue {
+                        // Cloud (Gemini) settings
+                        
+                        // AI Instruction Prompt
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Prompt")
+                                .font(.headline)
+                                .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+                            
+                            TextEditor(text: $userPrompt)
+                                .frame(minHeight: 100, idealHeight: 150, maxHeight: 200)
+                                .scrollContentBackground(.hidden)
+                                .padding(10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(Color.orangeTabbyLight.opacity(0.7))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .stroke(isPromptFocused ? Color.orangeTabbyAccent : Color.orangeTabbyDark.opacity(0.4), lineWidth: isPromptFocused ? 2 : 1)
+                                        )
+                                )
+                                .focused($isPromptFocused)
+                                .onSubmit { isPromptFocused = false }
+                                .id("promptEditor")
+                                .onChange(of: isPromptFocused) { _, focused in
+                                    if focused {
+                                        // Add a small delay to ensure keyboard is shown first
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                            withAnimation(.easeInOut(duration: 0.3)) {
+                                                proxy.scrollTo("promptEditor", anchor: .top)
+                                            }
                                         }
                                     }
                                 }
-                            }
-                            .foregroundColor(Color.orangeTabbyText)
-                            .layoutPriority(1)
-                    }
-
-                    geminiSettingsSection(proxy: proxy) // Always show Gemini settings (API key, model, endpoint)
-                    
-                    // AI Thinking Toggle - horizontal layout (moved to bottom)
-                    HStack(spacing: 16) {
-                        Text("Thinking")
-                            .font(.headline)
-                            .foregroundColor(Color.orangeTabbyText.opacity(0.7))
-                        
-                        Spacer()
-                        
-                        Toggle("", isOn: $thinkingEnabled)
-                            .labelsHidden()
-                            .tint(Color.orangeTabbyAccent)
-                            .onChange(of: thinkingEnabled) { _, enabled in
-                                updatePromptForThinking(enabled: enabled)
-                            }
-                    }
-                    
-                    // Conditional display for Vision if it's the active fallback
-                    if currentTextExtractorType == .vision {
-                        VStack(spacing: 12) {
-                            HStack(spacing: 12) {
-                                Image(systemName: "eye.circle.fill")
-                                    .font(.title2)
-                                    .foregroundColor(Color.orangeTabbyAccent)
-                                
-                                Text("Using Apple Vision for offline text recognition")
-                                    .font(.subheadline)
-                                    .foregroundColor(Color.orangeTabbyText)
-                                
-                                Spacer()
-                            }
-                            .padding(16)
-                            .frame(maxWidth: .infinity)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color.orangeTabbyLight.opacity(0.4))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .stroke(Color.orangeTabbyAccent.opacity(0.3), lineWidth: 1)
-                                    )
-                            )
-                            
-                            visionSettingsSection(proxy: proxy)
+                                .foregroundColor(Color.orangeTabbyText)
+                                .layoutPriority(1)
                         }
+
+                        geminiSettingsSection(proxy: proxy)
+                        
+                        // AI Thinking Toggle - horizontal layout
+                        HStack(spacing: 16) {
+                            Text("Thinking")
+                                .font(.headline)
+                                .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+                            
+                            Spacer()
+                            
+                            Toggle("", isOn: $thinkingEnabled)
+                                .labelsHidden()
+                                .tint(Color.orangeTabbyAccent)
+                                .onChange(of: thinkingEnabled) { _, enabled in
+                                    updatePromptForThinking(enabled: enabled)
+                                }
+                        }
+                        .padding(.top, 8) // Add consistent spacing to match General tab
+                    } else {
+                        // Local (Vision) explanation
+                        localVisionExplanationSection
+                    }
+                    
+                    // Vision settings section - show when Vision is selected
+                    if textExtractorService == TextExtractorType.vision.rawValue {
+                        visionSettingsSection(proxy: proxy)
                     }
                     
                     Spacer(minLength: 40)
@@ -533,7 +541,7 @@ struct SettingsView: View {
                 .padding(.bottom, keyboardHeight)
                 .id(aiTabLayoutId)
             }
-            .animation(.easeInOut, value: currentTextExtractorType) // Animate changes when Vision section appears/disappears
+            .animation(.easeInOut, value: textExtractorService) // Animate changes when Vision section appears/disappears
         }
         .onAppear {
             // Initialize prompt to match thinking toggle state on first launch
@@ -549,6 +557,9 @@ struct SettingsView: View {
     var aboutTabView: some View {
         ScrollView {
             VStack(spacing: 24) {
+                // Add top padding to prevent content from being cut off by camera
+                Spacer()
+                    .frame(height: 20)
                 // App Icon with 16:9 aspect ratio and rounded corners
                 Group {
                     #if os(iOS)
@@ -662,6 +673,26 @@ struct SettingsView: View {
                                 .fill(Color.orangeTabbyLight.opacity(0.3))
                         )
                     }
+                }
+
+                // Reset to Default Settings Button
+                Button(action: {
+                    showResetConfirmation = true
+                }) {
+                    Text("Reset to Default Settings")
+                        .font(.headline)
+                        .foregroundColor(.red)
+                        .padding(.vertical, 12)
+                        .frame(maxWidth: .infinity)
+                }
+                .padding(.top, 30)
+                .alert("Reset Settings", isPresented: $showResetConfirmation) {
+                    Button("Cancel", role: .cancel) { }
+                    Button("Reset", role: .destructive) {
+                        resetToDefaults()
+                    }
+                } message: {
+                    Text("This will reset all settings to their default values. This action cannot be undone.")
                 }
 
                 Spacer(minLength: 40)
@@ -864,51 +895,102 @@ struct SettingsView: View {
             visionUsesLanguageCorrection = true
         }
     }
+    
+    @ViewBuilder
+    private var localVisionExplanationSection: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            // Header
+            HStack {
+                Image(systemName: "apple.logo")
+                    .foregroundColor(Color.orangeTabbyAccent)
+                    .font(.title2)
+                Text("Apple Vision")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .foregroundColor(Color.orangeTabbyText)
+            }
+            
+            // Explanation content
+            VStack(alignment: .leading, spacing: 16) {
+                explanationItem(
+                    icon: "exclamationmark.triangle.fill",
+                    title: "Lower Quality",
+                    description: "Basic text recognition with limited accuracy, especially poor with handwritten text. Best for printed text only."
+                )
+                
+                explanationItem(
+                    icon: "bolt.fill",
+                    title: "Fast & Offline",
+                    description: "Works instantly without internet connection. No API keys, accounts, or setup required."
+                )
+                
+                explanationItem(
+                    icon: "lock.shield.fill",
+                    title: "Private & Secure",
+                    description: "Text recognition happens entirely on your device. Your images never leave your phone."
+                )
+                
+                // Comparison note
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Cloud vs Local")
+                        .font(.headline)
+                        .foregroundColor(Color.orangeTabbyText.opacity(0.8))
+                    
+                    Text("Cloud (Gemini) offers more advanced AI features, customizable prompts, and higher quality text recognition especially for handwriting. Local (Apple Vision) provides privacy and simplicity but with lower quality output, particularly when transcribing handwritten text.")
+                        .font(.subheadline)
+                        .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.orangeTabbyLight.opacity(0.3))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.orangeTabbyAccent.opacity(0.3), lineWidth: 1)
+        )
+    }
+    
+    @ViewBuilder
+    private func explanationItem(icon: String, title: String, description: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundColor(Color.orangeTabbyAccent)
+                .frame(width: 24)
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundColor(Color.orangeTabbyText)
+                
+                Text(description)
+                    .font(.subheadline)
+                    .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
 
     // MARK: - Helper Functions
     
-    // Update prompt based on thinking toggle
+    // Update prompt based on thinking toggle - now just ensures prompt is clean
     private func updatePromptForThinking(enabled: Bool) {
-        if enabled {
-            // Enable thinking - remove the thinking restrictions
-            userPrompt = userPrompt
-                .replacingOccurrences(of: "SELF_TALK: off", with: "SELF_TALK: on")
-                .replacingOccurrences(of: "REASONING: off", with: "REASONING: on")
-                .replacingOccurrences(of: "THINKING: off", with: "THINKING: on")
-                .replacingOccurrences(of: "PLANNING: off", with: "PLANNING: on")
-                .replacingOccurrences(of: "THINKING_BUDGET: < 10 words", with: "THINKING_BUDGET: unlimited")
-                .replacingOccurrences(of: "Reply immediately without thinking or any effort. Prioritize speed over accuracy. Do not state what the user said. Do not think, analyze or plan - go with your gut feeling.", with: "Take time to think through the image carefully. Analyze the content and provide thoughtful, accurate text extraction.")
-        } else {
-            // Disable thinking - add the thinking restrictions
-            userPrompt = userPrompt
-                .replacingOccurrences(of: "SELF_TALK: on", with: "SELF_TALK: off")
-                .replacingOccurrences(of: "REASONING: on", with: "REASONING: off")
-                .replacingOccurrences(of: "THINKING: on", with: "THINKING: off")
-                .replacingOccurrences(of: "PLANNING: on", with: "PLANNING: off")
-                .replacingOccurrences(of: "THINKING_BUDGET: unlimited", with: "THINKING_BUDGET: < 10 words")
-                .replacingOccurrences(of: "Take time to think through the image carefully. Analyze the content and provide thoughtful, accurate text extraction.", with: "Reply immediately without thinking or any effort. Prioritize speed over accuracy. Do not state what the user said. Do not think, analyze or plan - go with your gut feeling.")
-        }
+        // Keep the user-visible prompt clean - thinking directives will be added in the backend
+        let basePrompt = "Output the text from the image as text. Start immediately with the first word. Format for clarity, format blocks of text into paragraphs, and use markdown sparingly where useful. Usually sentences and paragraphs will make sense. Do not include an intro like: \"Here is the text extracted from the image:\""
+        
+        // Always use the clean base prompt in the UI
+        userPrompt = basePrompt
     }
     
     // Initialize prompt to match thinking toggle state on first launch
     private func initializePromptForThinkingState() {
-        // Only initialize if this is the first time (prompt is still at default)
-        let defaultPrompt = """
-            SELF_TALK: off
-            REASONING: off
-            THINKING: off
-            PLANNING: off
-            THINKING_BUDGET: < 10 words
-            
-            Reply immediately without thinking or any effort. Prioritize speed over accuracy. Do not state what the user said. Do not think, analyze or plan - go with your gut feeling.
-            
-            Output the text from the image as text. Start immediately with the first word. Format for clarity, format blocks of text into paragraphs, and use markdown sparingly where useful. 
-
-            Do not include an intro like: "Here is the text extracted from the image:"
-            """
-        
-        // If the prompt is still at default, update it to match the current thinking toggle state
-        if userPrompt == defaultPrompt {
+        // If prompt is empty or contains old thinking directives, reset to clean base prompt
+        if userPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || 
+           userPrompt.contains("THINKING:") || userPrompt.contains("REASONING:") || userPrompt.contains("PLANNING:") {
             updatePromptForThinking(enabled: thinkingEnabled)
         }
     }
@@ -970,19 +1052,6 @@ struct SettingsView: View {
     // Reset settings to defaults
     private func resetToDefaults() {
         selectedModelId = "gemini-2.5-flash"
-        userPrompt = """
-            SELF_TALK: off
-            REASONING: off
-            THINKING: off
-            PLANNING: off
-            THINKING_BUDGET: < 10 words
-            
-            Reply immediately without thinking or any effort. Prioritize speed over accuracy. Do not state what the user said. Do not think, analyze or plan - go with your gut feeling.
-            
-            Output the text from the image as text. Start immediately with the first word. Format for clarity, format blocks of text into paragraphs, and use markdown sparingly where useful. 
-
-            Do not include an intro like: "Here is the text extracted from the image:"
-            """
         apiEndpointUrlString = "https://generativelanguage.googleapis.com/v1beta/models/"
         draftsTag = "notebook"
         photoFolderName = "notebook" // Updated from savePhotosToAlbum
@@ -993,6 +1062,8 @@ struct SettingsView: View {
         visionUsesLanguageCorrection = true
         // Reset AI thinking setting
         thinkingEnabled = false
+        // Reset prompt to default based on thinking state
+        updatePromptForThinking(enabled: thinkingEnabled)
         // Note: API key is not reset as it's sensitive information
     }
 
