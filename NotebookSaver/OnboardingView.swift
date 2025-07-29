@@ -2,7 +2,7 @@ import SwiftUI
 import Foundation
 
 struct OnboardingView: View {
-    @AppStorage("textExtractorService") private var textExtractorService: String = TextExtractorType.vision.rawValue // Default to vision (Local)
+    @AppStorage("textExtractorService") private var textExtractorService: String = AppDefaults.textExtractorService
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var apiKey = ""
     @State private var showSaveConfirmation = false

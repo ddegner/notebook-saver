@@ -3,7 +3,7 @@ import SwiftUI
 @main
 struct NotebookSaverApp: App {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
-    @AppStorage("textExtractorService") private var textExtractorService: String = TextExtractorType.gemini.rawValue // Default to Gemini
+    @AppStorage("textExtractorService") private var textExtractorService: String = AppDefaults.textExtractorService
     @State private var showOnboardingSheet = false
 
     var body: some Scene {

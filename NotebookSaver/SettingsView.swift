@@ -88,7 +88,7 @@ struct SettingsView: View {
     // AI thinking toggle
     @AppStorage(StorageKeys.thinkingEnabled) private var thinkingEnabled: Bool = false // Default to false (thinking off)
     // Text extraction service selection
-    @AppStorage("textExtractorService") private var textExtractorService: String = TextExtractorType.gemini.rawValue
+    @AppStorage("textExtractorService") private var textExtractorService: String = AppDefaults.textExtractorService
 
     // === State for API Key (using Keychain) ===
     @State private var apiKey: String = ""
