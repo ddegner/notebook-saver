@@ -477,7 +477,7 @@ struct CaptureButtonView: View {
         }
         .buttonStyle(PlainButtonStyle()) // Prevent button styling from affecting opacity
         .simultaneousGesture(
-            DragGesture(minimumDistance: 0)
+            DragGesture(minimumDistance: 5)
                 .onChanged { _ in
                     if !buttonPressed {
                         buttonPressed = true

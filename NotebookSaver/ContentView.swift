@@ -31,7 +31,7 @@ struct ContentView: View {
                     .shadow(color: .black.opacity(0.30), radius: 12, x: 0, y: 6)
             }
             .gesture(
-                DragGesture()
+                DragGesture(minimumDistance: 10)
                     .onChanged { value in
                         let translation = value.translation.height
                         

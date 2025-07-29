@@ -117,9 +117,6 @@ struct SettingsView: View {
     @FocusState private var isDraftsTagFocused: Bool
     @FocusState private var isPhotoFolderFocused: Bool
     @FocusState private var isApiEndpointFocused: Bool
-    
-    // State to track AI tab layout refresh
-    @State private var aiTabLayoutId = UUID()
 
     // Check if Gemini service is properly configured
     private var isGeminiConfigured: Bool {
@@ -200,12 +197,6 @@ struct SettingsView: View {
                         Button(action: {
                             withAnimation(.easeInOut(duration: 0.3)) {
                                 selectedTab = tab
-                                // Force AI tab layout refresh when switching to AI tab
-                                if tab == .ai {
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                        aiTabLayoutId = UUID()
-                                    }
-                                }
                             }
                         }) {
                             VStack(spacing: 6) {
@@ -270,14 +261,21 @@ struct SettingsView: View {
         }
         .onDisappear {
             removeKeyboardObservers()
+            // Cancel any pending tasks to prevent memory leaks
+            saveConfirmationTask?.cancel()
+            connectionTestTask?.cancel()
         }
         .dismissKeyboardOnTap()
     }
 
     // MARK: - Keyboard Handling
     
+    // Store observer tokens to properly remove them later
+    @State private var keyboardShowObserver: NSObjectProtocol?
+    @State private var keyboardHideObserver: NSObjectProtocol?
+    
     private func setupKeyboardObservers() {
-        NotificationCenter.default.addObserver(
+        keyboardShowObserver = NotificationCenter.default.addObserver(
             forName: UIResponder.keyboardWillShowNotification,
             object: nil,
             queue: .main
@@ -290,7 +288,7 @@ struct SettingsView: View {
             }
         }
         
-        NotificationCenter.default.addObserver(
+        keyboardHideObserver = NotificationCenter.default.addObserver(
             forName: UIResponder.keyboardWillHideNotification,
             object: nil,
             queue: .main
@@ -302,16 +300,14 @@ struct SettingsView: View {
     }
     
     private func removeKeyboardObservers() {
-        NotificationCenter.default.removeObserver(
-            self,
-            name: UIResponder.keyboardWillShowNotification,
-            object: nil
-        )
-        NotificationCenter.default.removeObserver(
-            self,
-            name: UIResponder.keyboardWillHideNotification,
-            object: nil
-        )
+        if let observer = keyboardShowObserver {
+            NotificationCenter.default.removeObserver(observer)
+            keyboardShowObserver = nil
+        }
+        if let observer = keyboardHideObserver {
+            NotificationCenter.default.removeObserver(observer)
+            keyboardHideObserver = nil
+        }
     }
     
     // MARK: - Tab Views
@@ -442,24 +438,27 @@ struct SettingsView: View {
                     // Add top padding to prevent content from being cut off by camera
                     Spacer()
                         .frame(height: 20)
-                    // Service Selection - simple segmented control
-                    HStack(spacing: 0) {
+                    // Service Selection - improved segmented control with better touch handling
+                    HStack(spacing: 2) {
                         ForEach(TextExtractorType.allCases, id: \.rawValue) { service in
-                            Button(action: {
-                                textExtractorService = service.rawValue
-                            }) {
+                            let isSelected = textExtractorService == service.rawValue
+                            
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    textExtractorService = service.rawValue
+                                }
+                            } label: {
                                 Text(service.rawValue)
                                     .font(.system(size: 15, weight: .medium))
-                                    .foregroundColor(textExtractorService == service.rawValue ? .white : Color.orangeTabbyText.opacity(0.7))
-                                    .padding(.vertical, 8)
-                                    .padding(.horizontal, 12)
-                                    .frame(maxWidth: .infinity)
+                                    .foregroundColor(isSelected ? .white : Color.orangeTabbyText.opacity(0.7))
+                                    .frame(maxWidth: .infinity, minHeight: 36)
                                     .background(
                                         RoundedRectangle(cornerRadius: 6)
-                                            .fill(textExtractorService == service.rawValue ? Color.orangeTabbyDark : Color.clear)
+                                            .fill(isSelected ? Color.orangeTabbyDark : Color.clear)
                                     )
                             }
-                            .buttonStyle(PlainButtonStyle())
+                            .buttonStyle(.plain)
+                            .contentShape(Rectangle())
                         }
                     }
                     .padding(4)
@@ -467,6 +466,11 @@ struct SettingsView: View {
                         RoundedRectangle(cornerRadius: 8)
                             .fill(Color.orangeTabbyLight.opacity(0.6))
                     )
+                    .allowsHitTesting(true)
+                    .onTapGesture {
+                        // Prevent the keyboard dismissal gesture from interfering
+                        // This empty gesture will be handled by the buttons above
+                    }
                     
                     // Show different content based on selected service
                     if textExtractorService == TextExtractorType.gemini.rawValue {
@@ -539,17 +543,12 @@ struct SettingsView: View {
                 }
                 .padding()
                 .padding(.bottom, keyboardHeight)
-                .id(aiTabLayoutId)
             }
             .animation(.easeInOut, value: textExtractorService) // Animate changes when Vision section appears/disappears
         }
         .onAppear {
             // Initialize prompt to match thinking toggle state on first launch
             initializePromptForThinkingState()
-            // Force layout refresh to fix spacing issue
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                aiTabLayoutId = UUID()
-            }
         }
     }
 
@@ -839,7 +838,10 @@ struct SettingsView: View {
                 TextField(apiUrlPlaceholderText, text: $apiEndpointUrlString)
                     .disableAutocorrection(true)
                     .focused($isApiEndpointFocused)
-                    .onSubmit { isApiEndpointFocused = false }
+                    .onSubmit { 
+                        isApiEndpointFocused = false
+                        validateApiEndpointUrl()
+                    }
                     .id("apiEndpoint")
                     .onChange(of: isApiEndpointFocused) { _, focused in
                         if focused {
@@ -879,6 +881,14 @@ struct SettingsView: View {
                     Text(connectionStatusMessage)
                         .font(.caption)
                         .foregroundColor(connectionStatus == .failure ? .red : Color.black)
+                    
+                    if connectionStatus == .failure {
+                        Button("Clear") {
+                            clearConnectionStatus()
+                        }
+                        .font(.caption)
+                        .foregroundColor(.blue)
+                    }
                 }
             }
         }
@@ -979,11 +989,15 @@ struct SettingsView: View {
     
     // Update prompt based on thinking toggle - now just ensures prompt is clean
     private func updatePromptForThinking(enabled: Bool) {
-        // Keep the user-visible prompt clean - thinking directives will be added in the backend
         let basePrompt = "Output the text from the image as text. Start immediately with the first word. Format for clarity, format blocks of text into paragraphs, and use markdown sparingly where useful. Usually sentences and paragraphs will make sense. Do not include an intro like: \"Here is the text extracted from the image:\""
         
-        // Always use the clean base prompt in the UI
-        userPrompt = basePrompt
+        // Only reset to base prompt if it contains thinking directives or is empty
+        // This preserves user customizations while cleaning up old thinking directives
+        if userPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || 
+           userPrompt.contains("THINKING:") || userPrompt.contains("REASONING:") || userPrompt.contains("PLANNING:") {
+            userPrompt = basePrompt
+        }
+        // If user has a custom prompt without thinking directives, preserve it
     }
     
     // Initialize prompt to match thinking toggle state on first launch
@@ -1007,46 +1021,88 @@ struct SettingsView: View {
         }
     }
 
+    // Validate API endpoint URL format
+    private func validateApiEndpointUrl() {
+        guard !apiEndpointUrlString.isEmpty else { return }
+        
+        if URL(string: apiEndpointUrlString) == nil {
+            connectionStatus = .failure
+            connectionStatusMessage = "Invalid URL format"
+        } else if connectionStatus == .failure && connectionStatusMessage == "Invalid URL format" {
+            // Clear the error if URL is now valid
+            connectionStatus = .idle
+            connectionStatusMessage = ""
+        }
+    }
+    
     // Save API key to keychain
+    @State private var saveConfirmationTask: Task<Void, Never>?
+    
     private func saveApiKey() {
         let success = KeychainService.saveAPIKey(apiKey)
         apiKeyStatusMessage = success ? "API Key Saved Successfully!" : "Failed to Save API Key."
         if success {
             withAnimation { showSaveConfirmation = true }
+            
+            // Cancel any existing confirmation task to prevent race conditions
+            saveConfirmationTask?.cancel()
+            
             // Optionally hide checkmark after a delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                withAnimation { showSaveConfirmation = false }
+            saveConfirmationTask = Task {
+                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+                if !Task.isCancelled {
+                    await MainActor.run {
+                        withAnimation { showSaveConfirmation = false }
+                    }
+                }
             }
         } else {
             withAnimation { showSaveConfirmation = false }
         }
     }
 
-    // Test connection (placeholder)
+    // Test connection with better error handling
+    @State private var connectionTestTask: Task<Void, Never>?
+    
     private func testConnection() {
+        // Cancel any existing connection test
+        connectionTestTask?.cancel()
+        
         connectionStatus = .testing
         connectionStatusMessage = "Connecting..."
 
-        Task {
+        connectionTestTask = Task {
             let success = await GeminiService.warmUpConnection()
-            DispatchQueue.main.async {
-                if success {
-                    connectionStatus = .success
-                    connectionStatusMessage = "Connection successful!"
-                } else {
-                    connectionStatus = .failure
-                    connectionStatusMessage = apiKey.isEmpty ? "Connection failed: API Key missing." : "Connection failed: Invalid endpoint or key."
-                }
+            
+            if !Task.isCancelled {
+                await MainActor.run {
+                    if success {
+                        connectionStatus = .success
+                        connectionStatusMessage = "Connection successful!"
+                    } else {
+                        connectionStatus = .failure
+                        connectionStatusMessage = apiKey.isEmpty ? "Connection failed: API Key missing." : "Connection failed: Invalid endpoint or key."
+                    }
 
-                // Optional: Reset status after a few seconds
-                DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
-                    if connectionStatus != .testing { // Don't reset if another test started
-                        connectionStatus = .idle
-                        connectionStatusMessage = ""
+                    // Reset status after a few seconds, but only if not cancelled
+                    Task {
+                        try? await Task.sleep(nanoseconds: 4_000_000_000) // 4 seconds
+                        if !Task.isCancelled && connectionStatus != .testing {
+                            await MainActor.run {
+                                connectionStatus = .idle
+                                connectionStatusMessage = ""
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+    
+    private func clearConnectionStatus() {
+        connectionTestTask?.cancel()
+        connectionStatus = .idle
+        connectionStatusMessage = ""
     }
 
     // Reset settings to defaults
