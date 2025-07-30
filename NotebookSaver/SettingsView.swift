@@ -438,39 +438,16 @@ struct SettingsView: View {
                     // Add top padding to prevent content from being cut off by camera
                     Spacer()
                         .frame(height: 20)
-                    // Service Selection - improved segmented control with better touch handling
-                    HStack(spacing: 2) {
+                    // Service Selection - using default segmented picker
+                    Picker("Text Extraction Service", selection: $textExtractorService) {
                         ForEach(TextExtractorType.allCases, id: \.rawValue) { service in
-                            let isSelected = textExtractorService == service.rawValue
-                            
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    textExtractorService = service.rawValue
-                                }
-                            } label: {
-                                Text(service.rawValue)
-                                    .font(.system(size: 15, weight: .medium))
-                                    .foregroundColor(isSelected ? .white : Color.orangeTabbyText.opacity(0.7))
-                                    .frame(maxWidth: .infinity, minHeight: 36)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .fill(isSelected ? Color.orangeTabbyDark : Color.clear)
-                                    )
-                            }
-                            .buttonStyle(.plain)
-                            .contentShape(Rectangle())
+                            Text(service.rawValue)
+                                .tag(service.rawValue)
                         }
                     }
-                    .padding(4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.orangeTabbyLight.opacity(0.6))
-                    )
-                    .allowsHitTesting(true)
-                    .onTapGesture {
-                        // Prevent the keyboard dismissal gesture from interfering
-                        // This empty gesture will be handled by the buttons above
-                    }
+                    .pickerStyle(SegmentedPickerStyle())
+                    .frame(height: 46)
+                    .animation(.easeInOut(duration: 0.2), value: textExtractorService)
                     
                     // Show different content based on selected service
                     if textExtractorService == TextExtractorType.gemini.rawValue {

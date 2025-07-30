@@ -93,7 +93,7 @@ struct ContentView: View {
                         }
                         
                         // Always snap back to the discrete position
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8, blendDuration: 0)) {
+                        withAnimation(.easeInOut(duration: 0.1)) {
                             dragOffset = 0
                         }
                     }
@@ -103,7 +103,7 @@ struct ContentView: View {
                 cameraOffset = isShowingSettings ? -geometry.size.height + 80 : 0
             }
             .onChange(of: isShowingSettings) { _, newValue in
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.9, blendDuration: 0)) {
+                withAnimation(.easeInOut(duration: 0.2)) {
                     // When showing settings, slide camera up so only the chevron (bottom 80pts) is visible
                     cameraOffset = newValue ? -geometry.size.height + 80 : 0
                     // Reset dragOffset as part of the same animation
