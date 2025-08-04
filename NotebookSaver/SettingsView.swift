@@ -201,25 +201,18 @@ struct SettingsView: View {
                             }
                         }) {
                             VStack(spacing: 6) {
-                                // Icon with backlit effect for selected tab
                                 Image(systemName: tab.iconName)
                                     .font(.system(size: 22, weight: .medium))
-                                    .foregroundColor(selectedTab == tab ? Color(red: 1.0, green: 0.4, blue: 0.0) : Color.orangeTabbyText.opacity(0.6))
-                                    .shadow(color: selectedTab == tab ? Color.yellow.opacity(0.7) : Color.clear, radius: selectedTab == tab ? 4 : 0)
-                                    .shadow(color: selectedTab == tab ? Color.yellow.opacity(0.4) : Color.clear, radius: selectedTab == tab ? 8 : 0)
                                 
                                 Text(tab.displayName)
                                     .font(.caption2)
-                                    .fontWeight(selectedTab == tab ? .semibold : .regular)
-                                    .foregroundColor(selectedTab == tab ? Color(red: 1.0, green: 0.4, blue: 0.0) : Color.orangeTabbyText.opacity(0.6))
-                                    .shadow(color: selectedTab == tab ? Color.yellow.opacity(0.6) : Color.clear, radius: selectedTab == tab ? 3 : 0)
-                                    .shadow(color: selectedTab == tab ? Color.yellow.opacity(0.3) : Color.clear, radius: selectedTab == tab ? 6 : 0)
+                                    .fontWeight(.semibold)
                             }
                             .frame(maxWidth: .infinity)
                             .frame(height: 60)
-                            .scaleEffect(selectedTab == tab ? 1.05 : 1.0)
-                            .animation(.easeInOut(duration: 0.2), value: selectedTab == tab)
                         }
+                        .buttonStyle(.plain)
+                        .foregroundColor(selectedTab == tab ? Color.orangeTabbyAccent : Color.orangeTabbyText.opacity(0.6))
                         .padding(.horizontal, 4)
                         
                         // Add vertical divider between tabs (but not after the last one)
@@ -604,93 +597,35 @@ struct SettingsView: View {
 
                 // Links Section
                 VStack(spacing: 20) {
-                    Button(action: showApiKeyOnboarding) {
-                        HStack {
-                            Image(systemName: "key.fill")
-                                .font(.title2)
-                                .foregroundColor(Color.orangeTabbyAccent)
-                            
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("How to get an API Key")
-                                    .font(.headline)
-                                    .foregroundColor(Color.orangeTabbyText)
-                            }
-                            
-                            Spacer()
-                            
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                                .foregroundColor(Color.orangeTabbyText.opacity(0.4))
-                        }
-                        .padding(16)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color.orangeTabbyLight.opacity(0.3))
-                        )
+                    Button("How to get an API Key") {
+                        showApiKeyOnboarding()
                     }
-                    .buttonStyle(PlainButtonStyle())
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color.orangeTabbyAccent)
                     
-                    Link(destination: URL(string: "https://www.daviddegner.com/blog/cat-scribe/")!) {
-                        HStack {
-                            Image(systemName: "questionmark.circle.fill")
-                                .font(.title2)
-                                .foregroundColor(Color.orangeTabbyAccent)
-                            
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Help & Documentation")
-                                    .font(.headline)
-                                    .foregroundColor(Color.orangeTabbyText)
-                            }
-                            
-                            Spacer()
-                            
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                                .foregroundColor(Color.orangeTabbyText.opacity(0.4))
+                    Button("Help & Documentation") {
+                        if let url = URL(string: "https://www.daviddegner.com/blog/cat-scribe/") {
+                            UIApplication.shared.open(url)
                         }
-                        .padding(16)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color.orangeTabbyLight.opacity(0.3))
-                        )
                     }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color.orangeTabbyAccent)
 
-                    Link(destination: URL(string: "mailto:David@DavidDegner.com")!) {
-                        HStack {
-                            Image(systemName: "envelope.fill")
-                                .font(.title2)
-                                .foregroundColor(Color.orangeTabbyAccent)
-                            
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Contact Support")
-                                    .font(.headline)
-                                    .foregroundColor(Color.orangeTabbyText)
-                            }
-                            
-                            Spacer()
-                            
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                                .foregroundColor(Color.orangeTabbyText.opacity(0.4))
+                    Button("Contact Support") {
+                        if let url = URL(string: "mailto:David@DavidDegner.com") {
+                            UIApplication.shared.open(url)
                         }
-                        .padding(16)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color.orangeTabbyLight.opacity(0.3))
-                        )
                     }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color.orangeTabbyAccent)
                 }
 
                 // Reset to Default Settings Button
-                Button(action: {
+                Button("Reset to Default Settings") {
                     showResetConfirmation = true
-                }) {
-                    Text("Reset to Default Settings")
-                        .font(.body)
-                        .foregroundColor(.red)
-                        .padding(.vertical, 12)
-                        .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.bordered)
+                .tint(.red)
                 .padding(.top, 30)
                 .alert("Reset Settings", isPresented: $showResetConfirmation) {
                     Button("Cancel", role: .cancel) { }
@@ -756,24 +691,15 @@ struct SettingsView: View {
                 
                 // Refresh button beside the dropdown
                 Button(action: refreshModels) {
-                    HStack(spacing: 4) {
-                        if isRefreshingModels {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                                .progressViewStyle(CircularProgressViewStyle(tint: Color.white))
-                        } else {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 14, weight: .medium))
-                        }
+                    if isRefreshingModels {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
                     }
-                    .foregroundColor(isRefreshingModels || apiKey.isEmpty ? Color.orangeTabbyText.opacity(0.4) : Color.white)
                 }
-                .frame(width: 44, height: 46)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(isRefreshingModels || apiKey.isEmpty ? 
-                             Color.orangeTabbyText.opacity(0.2) : Color.orangeTabbyDark)
-                )
+                .buttonStyle(.bordered)
+                .tint(Color.orangeTabbyAccent)
                 .disabled(isRefreshingModels || apiKey.isEmpty)
             }
             
@@ -813,15 +739,9 @@ struct SettingsView: View {
                     .foregroundColor(Color.orangeTabbyText)
                 Button(action: { saveApiKey() }) {
                     Image(systemName: "square.and.arrow.down")
-                        .imageScale(.large)
-                        .foregroundColor((apiKey.isEmpty || !showSaveConfirmation) ? Color.orangeTabbyText.opacity(0.4) : Color.white)
                 }
-                .frame(width: 44, height: 46)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill((apiKey.isEmpty || !showSaveConfirmation) ? 
-                             Color.orangeTabbyText.opacity(0.2) : Color.orangeTabbyDark)
-                )
+                .buttonStyle(.bordered)
+                .tint(Color.orangeTabbyAccent)
                 .disabled(apiKey.isEmpty)
             }
             
@@ -871,16 +791,9 @@ struct SettingsView: View {
                     .foregroundColor(Color.orangeTabbyText)
                 Button(action: { if connectionStatus != .testing { testConnection() } }) {
                     Image(systemName: "square.and.arrow.down")
-                        .imageScale(.large)
-                        .foregroundColor((apiEndpointUrlString.isEmpty || connectionStatus == .testing) ? 
-                                       Color.orangeTabbyText.opacity(0.4) : Color.white)
                 }
-                .frame(width: 44, height: 46)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill((apiEndpointUrlString.isEmpty || connectionStatus == .testing) ? 
-                             Color.orangeTabbyText.opacity(0.2) : Color.orangeTabbyDark)
-                )
+                .buttonStyle(.bordered)
+                .tint(Color.orangeTabbyAccent)
                 .disabled(apiEndpointUrlString.isEmpty || connectionStatus == .testing)
             }
             
@@ -895,8 +808,8 @@ struct SettingsView: View {
                         Button("Clear") {
                             clearConnectionStatus()
                         }
+                        .buttonStyle(.plain)
                         .font(.caption)
-                        .foregroundColor(.blue)
                     }
                 }
             }
