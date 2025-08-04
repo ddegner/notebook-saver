@@ -50,6 +50,7 @@ extension Color {
 }
 
 struct SettingsView: View {
+    @EnvironmentObject var appState: AppStateManager
     // Tab selection state
     @State private var selectedTab: SettingsTab = .ai
     
@@ -258,6 +259,9 @@ struct SettingsView: View {
             initializeModels()
             // Initialize prompt to match thinking toggle state on first launch
             initializePromptForThinkingState()
+        }
+        .onChange(of: appState.shouldReloadAPIKey) { _, _ in
+            loadAPIKey()
         }
         .onDisappear {
             removeKeyboardObservers()
@@ -600,6 +604,32 @@ struct SettingsView: View {
 
                 // Links Section
                 VStack(spacing: 20) {
+                    Button(action: showApiKeyOnboarding) {
+                        HStack {
+                            Image(systemName: "key.fill")
+                                .font(.title2)
+                                .foregroundColor(Color.orangeTabbyAccent)
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("How to get an API Key")
+                                    .font(.headline)
+                                    .foregroundColor(Color.orangeTabbyText)
+                            }
+                            
+                            Spacer()
+                            
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(Color.orangeTabbyText.opacity(0.4))
+                        }
+                        .padding(16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.orangeTabbyLight.opacity(0.3))
+                        )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    
                     Link(destination: URL(string: "https://www.daviddegner.com/blog/cat-scribe/")!) {
                         HStack {
                             Image(systemName: "questionmark.circle.fill")
@@ -656,7 +686,7 @@ struct SettingsView: View {
                     showResetConfirmation = true
                 }) {
                     Text("Reset to Default Settings")
-                        .font(.headline)
+                        .font(.body)
                         .foregroundColor(.red)
                         .padding(.vertical, 12)
                         .frame(maxWidth: .infinity)
@@ -803,6 +833,8 @@ struct SettingsView: View {
                         .foregroundColor(apiKeyStatusMessage.contains("Saved") ? Color.black : .red)
                 }
             }
+            
+
         }
         
         // API Endpoint URL and Test Connection
@@ -917,17 +949,7 @@ struct SettingsView: View {
                     description: "Text recognition happens entirely on your device. Your images never leave your phone."
                 )
                 
-                // Comparison note
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Cloud vs Local")
-                        .font(.headline)
-                        .foregroundColor(Color.orangeTabbyText.opacity(0.8))
-                    
-                    Text("Cloud (Gemini) offers more advanced AI features, customizable prompts, and higher quality text recognition especially for handwriting. Local (Apple Vision) provides privacy and simplicity but with lower quality output, particularly when transcribing handwritten text.")
-                        .font(.subheadline)
-                        .foregroundColor(Color.orangeTabbyText.opacity(0.7))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+
             }
         }
         .padding(20)
@@ -1101,8 +1123,7 @@ struct SettingsView: View {
     }
 
     private func showApiKeyOnboarding() {
-        // Use NotificationCenter to trigger the onboarding
-        NotificationCenter.default.post(name: NSNotification.Name("ShowOnboarding"), object: nil)
+        appState.presentOnboarding()
     }
 
     // Helper to update API key status message

@@ -6,8 +6,9 @@ struct OnboardingView: View {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @State private var apiKey = ""
     @State private var showSaveConfirmation = false
-    @State private var apiKeyStatusMessage = ""
+    @State private var saveError: String?
     @Binding var isOnboarding: Bool // This binding controls the sheet presentation
+    @EnvironmentObject var appState: AppStateManager
 
     var body: some View {
         NavigationView {
@@ -54,12 +55,7 @@ struct OnboardingView: View {
 
     private var welcomeHeader: some View {
         VStack(spacing: 20) {
-            Text("Connect to Gemini AI for best results")
-                .font(.title2)
-                .fontWeight(.medium)
-                .foregroundColor(.primary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
+            // Header content removed
         }
     }
 
@@ -132,41 +128,43 @@ struct OnboardingView: View {
                             .stroke(apiKey.isEmpty ? Color.gray.opacity(0.3) : Color.orange.opacity(0.5), lineWidth: 1)
                     )
                 
-                if !apiKeyStatusMessage.isEmpty {
-                    HStack(spacing: 6) {
-                        Image(systemName: showSaveConfirmation ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                            .foregroundColor(showSaveConfirmation ? .green : .red)
+                // Save button
+                Button(action: saveAPIKey) {
+                    HStack {
+                        if showSaveConfirmation {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                        } else {
+                            Image(systemName: "key.fill")
+                                .foregroundColor(.white)
+                        }
                         
-                        Text(apiKeyStatusMessage)
-                            .font(.caption)
-                            .foregroundColor(showSaveConfirmation ? .green : .red)
+                        Text(showSaveConfirmation ? "Saved!" : "Save API Key")
+                            .fontWeight(.semibold)
                     }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(showSaveConfirmation ? Color.green : (apiKey.isEmpty ? Color.gray : Color.orange))
+                    )
+                    .foregroundColor(.white)
+                }
+                .disabled(apiKey.isEmpty)
+                .animation(.easeInOut(duration: 0.3), value: showSaveConfirmation)
+                
+                // Error message if save fails
+                if let error = saveError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                        .padding(.top, 4)
                 }
             }
         }
     }
     
-    private var saveButtonView: some View {
-        Button(action: saveAPIKeyAndFinish) {
-            HStack {
-                if showSaveConfirmation {
-                    Image(systemName: "checkmark")
-                }
-                Text(showSaveConfirmation ? "Setup Complete! 🎉" : "Save")
-            }
-            .font(.headline)
-            .fontWeight(.semibold)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .padding(.horizontal, 20)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(apiKey.isEmpty ? Color.gray.opacity(0.3) : Color.black)
-            )
-            .foregroundColor(apiKey.isEmpty ? .gray : .white)
-        }
-        .disabled(apiKey.isEmpty)
-    }
+
 
     private var apiKeySetupSection: some View {
         VStack(alignment: .leading, spacing: 28) {
@@ -179,7 +177,7 @@ struct OnboardingView: View {
                 apiKeyInputView
             }
             
-            saveButtonView
+
         }
         .padding(24)
         .background(
@@ -205,7 +203,7 @@ struct OnboardingView: View {
             .padding(.horizontal, 20)
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.gray)
+                    .fill(Color.gray.opacity(0.6))
             )
             .overlay(
                 HStack {
@@ -246,30 +244,38 @@ struct OnboardingView: View {
 
     // MARK: - Actions
 
-    private func saveAPIKeyAndFinish() {
-        guard !apiKey.isEmpty else {
-            apiKeyStatusMessage = "API Key cannot be empty"
-            showSaveConfirmation = false
+    private func saveAPIKey() {
+        // Clear any previous error
+        saveError = nil
+        
+        // Validate API key is not empty
+        guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            saveError = "Please enter a valid API key"
             return
         }
-
-        // Use the proper KeychainService
-        let success = KeychainService.saveAPIKey(apiKey)
-
+        
+        // Save to keychain
+        let success = KeychainService.saveAPIKey(apiKey.trimmingCharacters(in: .whitespacesAndNewlines))
+        
         if success {
-            print("Gemini API Key Saved")
-            apiKeyStatusMessage = "API Key saved successfully!"
+            // Show confirmation
             showSaveConfirmation = true
-            textExtractorService = TextExtractorType.gemini.rawValue // Set to Cloud (Gemini)
+            
+            // Set service to Gemini since we have an API key
+            textExtractorService = TextExtractorType.gemini.rawValue
+            
+            // Mark onboarding as completed
             hasCompletedOnboarding = true
-
-            // Dismiss after a short delay to show confirmation
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            
+            // Trigger API key reload in SettingsView
+            appState.triggerAPIKeyReload()
+            
+            // Dismiss onboarding after a brief delay to show confirmation
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                 isOnboarding = false
             }
         } else {
-            apiKeyStatusMessage = "Failed to save API Key. Please try again."
-            showSaveConfirmation = false
+            saveError = "Failed to save API key. Please try again."
         }
     }
     
@@ -283,4 +289,5 @@ struct OnboardingView: View {
 
 #Preview {
     OnboardingView(isOnboarding: .constant(true))
+        .environmentObject(AppStateManager())
 }

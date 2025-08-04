@@ -4,23 +4,15 @@ import SwiftUI
 struct NotebookSaverApp: App {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @AppStorage("textExtractorService") private var textExtractorService: String = AppDefaults.textExtractorService
-    @State private var showOnboardingSheet = false
+    @StateObject private var appState = AppStateManager()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(appState)
                 .onAppear {
                     if !hasCompletedOnboarding {
-                        showOnboardingSheet = true
-                    }
-                    
-                    // Register for onboarding notification immediately - this is UI critical
-                    NotificationCenter.default.addObserver(
-                        forName: NSNotification.Name("ShowOnboarding"),
-                        object: nil,
-                        queue: .main
-                    ) { _ in
-                        showOnboardingSheet = true
+                        appState.presentOnboarding()
                     }
                     
                     // Defer Gemini warmup to avoid blocking UI presentation
@@ -36,8 +28,9 @@ struct NotebookSaverApp: App {
                     // Initialize models on first launch
                     initializeModelsIfNeeded()
                 }
-                .sheet(isPresented: $showOnboardingSheet) {
-                    OnboardingView(isOnboarding: $showOnboardingSheet)
+                .sheet(isPresented: $appState.showOnboarding) {
+                    OnboardingView(isOnboarding: $appState.showOnboarding)
+                        .environmentObject(appState)
                         .interactiveDismissDisabled()
                 }
         }
