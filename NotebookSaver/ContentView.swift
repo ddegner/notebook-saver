@@ -13,7 +13,6 @@ struct ContentView: View {
                 SettingsView()
                     .frame(width: geometry.size.width, height: geometry.size.height)
                     .background(Color.white)
-                    .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: -5)
                     .padding(.top, 80) // Add padding so tabs are visible when camera slides up
                 
                 // Camera View - slides up and down
