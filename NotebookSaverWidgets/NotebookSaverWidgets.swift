@@ -178,17 +178,12 @@ struct OpenAppWidget: Widget {
     SimpleEntry(date: .now)
 }
 
-// 6. Helper extension for widget background (handles API changes)
+// 6. Helper extension for widget background
 extension View {
     func widgetBackground(_ backgroundView: some View) -> some View {
-        if #available(iOS 17.0, *) {
-            // iOS 17+ way to set widget background
-            return containerBackground(for: .widget) {
-                backgroundView
-            }
-        } else {
-            // Fallback for older iOS versions
-            return background(backgroundView)
+        // iOS 18.0+ uses containerBackground for widgets
+        return containerBackground(for: .widget) {
+            backgroundView
         }
     }
 }
