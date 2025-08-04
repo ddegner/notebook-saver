@@ -175,7 +175,6 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
 
     // Defaults
     private let defaultModelId = "gemini-2.5-flash" // Default model if nothing is set
-    private let defaultPrompt = "Extract text accurately from this image of a notebook page."
     private static let defaultApiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/"
     private let defaultDraftsTag = "notebook"
 
@@ -189,7 +188,7 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
     private let imageProcessor = ImageProcessor()
 
     // Helper to get settings from UserDefaults
-    static func getSettings() -> (apiKey: String?, apiEndpointUrl: URL?, modelToUse: String?, prompt: String, draftsTag: String, thinkingEnabled: Bool) {
+    static func getSettings() -> (apiKey: String?, apiEndpointUrl: URL?, modelToUse: String?, prompt: String?, draftsTag: String, thinkingEnabled: Bool) {
         let defaults = UserDefaults.standard
 
         let apiKey = KeychainService.loadAPIKey()
@@ -208,11 +207,12 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
             modelToUse = nil // Treat empty custom model as invalid
         }
 
-        let prompt = defaults.string(forKey: "userPrompt") ?? "Extract text accurately from this image of a notebook page."
+        let prompt = defaults.string(forKey: "userPrompt")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let validPrompt = (prompt?.isEmpty == false) ? prompt : nil
         let draftsTag = defaults.string(forKey: "draftsTag") ?? "notebook"
         let thinkingEnabled = defaults.bool(forKey: "thinkingEnabled")
 
-        return (apiKey, apiEndpointUrl, modelToUse, prompt, draftsTag, thinkingEnabled)
+        return (apiKey, apiEndpointUrl, modelToUse, validPrompt, draftsTag, thinkingEnabled)
     }
 
     // MARK: - Connection Warming
@@ -339,7 +339,9 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
         guard let model = settings.modelToUse else {
             throw APIError.missingModelConfiguration
         }
-        let basePrompt = settings.prompt
+        guard let basePrompt = settings.prompt else {
+            throw APIError.missingPromptConfiguration
+        }
         let thinkingEnabled = settings.thinkingEnabled
         
         // Add thinking directives to the prompt if thinking is enabled
@@ -558,6 +560,7 @@ enum APIError: LocalizedError {
     case missingApiKey
     case invalidApiEndpoint(String)
     case missingModelConfiguration
+    case missingPromptConfiguration
     case modelNotFound(String) // New error for 404s
     case imageProcessingFailed
     case requestEncodingFailed(Error)
@@ -580,6 +583,8 @@ enum APIError: LocalizedError {
             return "Invalid API Endpoint URL configured: \(endpoint)"
         case .missingModelConfiguration:
             return "No valid model configured. Please select or enter a model in Settings."
+        case .missingPromptConfiguration:
+            return "No prompt configured. Please set a prompt in Settings to tell the AI how to process your images."
         case .modelNotFound(let modelName):
             return "Model '\(modelName)' not found. The model may have been deprecated or renamed. Try refreshing the models list in Settings."
         case .imageProcessingFailed:

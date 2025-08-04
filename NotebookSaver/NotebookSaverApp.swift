@@ -5,11 +5,15 @@ struct NotebookSaverApp: App {
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @AppStorage("textExtractorService") private var textExtractorService: String = AppDefaults.textExtractorService
     @StateObject private var appState = AppStateManager()
+    
+    // Preemptive camera manager for faster startup
+    @StateObject private var preemptiveCameraManager = CameraManager(setupOnInit: true)
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)
+                .environmentObject(preemptiveCameraManager)
                 .onAppear {
                     if !hasCompletedOnboarding {
                         appState.presentOnboarding()

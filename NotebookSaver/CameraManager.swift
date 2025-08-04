@@ -79,61 +79,69 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
     init(setupOnInit: Bool = true) {
         super.init()
         if setupOnInit {
-            checkPermissionsAndSetup()
+            // Start permission check and setup immediately on background queue
+            sessionQueue.async { [weak self] in
+                self?.checkPermissionsAndSetup()
+            }
         }
     }
     
     // MARK: - Setup and Permissions
 
     func checkPermissionsAndSetup() {
-        permissionRequested = true // Mark that we are about to check/request
+        DispatchQueue.main.async { [weak self] in
+            self?.permissionRequested = true
+        }
+        
         switch AVCaptureDevice.authorizationStatus(for: .video) {
             case .authorized:
-                // Permission already granted
-                // Run the configuration first, then publish state changes.
-                sessionQueue.async { [weak self] in
-                    self?.setupSession()
-                    DispatchQueue.main.async { [weak self] in
-                        // Mark as authorized and fully set up only after configuration completes.
-                        self?.isAuthorized = true
-                        self?.isSetupComplete = true
-                    }
+                // Permission already granted - setup immediately
+                setupSession()
+                DispatchQueue.main.async { [weak self] in
+                    self?.isAuthorized = true
+                    self?.isSetupComplete = true
+                    // Clear any stale error messages when camera becomes ready
+                    self?.errorMessage = nil
+                    // Auto-start session after state is properly set
+                    self?.startSession()
                 }
             case .notDetermined:
                 // Request permission
-                 sessionQueue.async { // Perform blocking request off the main thread
-                     AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
-                         DispatchQueue.main.async {
-                                     if granted {
-                                         self?.sessionQueue.async {
-                                              self?.setupSession()
-                                              DispatchQueue.main.async {
-                                                  self?.isAuthorized = true
-                                                  self?.isSetupComplete = true
-                                              }
-                                          }
-                                     } else {
-                                         self?.isAuthorized = false
-                                         print("Camera permission denied.")
-                                         self?.errorMessage = CameraError.authorizationDenied.localizedDescription
-                                     }
-                         }
-                     }
-                 }
+                AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+                    if granted {
+                        self?.sessionQueue.async {
+                            self?.setupSession()
+                            DispatchQueue.main.async {
+                                self?.isAuthorized = true
+                                self?.isSetupComplete = true
+                                // Clear any stale error messages when camera becomes ready
+                                self?.errorMessage = nil
+                                // Auto-start session after state is properly set
+                                self?.startSession()
+                            }
+                        }
+                    } else {
+                        DispatchQueue.main.async {
+                            self?.isAuthorized = false
+                            self?.errorMessage = CameraError.authorizationDenied.localizedDescription
+                        }
+                        print("Camera permission denied.")
+                    }
+                }
             case .denied, .restricted:
                 // Permission denied or restricted
-                 DispatchQueue.main.async { [weak self] in
-                     self?.isAuthorized = false
-                     self?.errorMessage = CameraError.authorizationDenied.localizedDescription
-                 }
-                 print("Camera permission was denied or restricted previously.")
+                DispatchQueue.main.async { [weak self] in
+                    self?.isAuthorized = false
+                    self?.errorMessage = CameraError.authorizationDenied.localizedDescription
+                }
+                print("Camera permission was denied or restricted previously.")
             @unknown default:
                 // Handle future cases
-                 DispatchQueue.main.async { [weak self] in
-                     self?.isAuthorized = false
-                     self?.errorMessage = "Unknown camera authorization status."
-                 }
-                 print("Unknown camera authorization status.")
+                DispatchQueue.main.async { [weak self] in
+                    self?.isAuthorized = false
+                    self?.errorMessage = "Unknown camera authorization status."
+                }
+                print("Unknown camera authorization status.")
         }
     }
 
@@ -145,153 +153,106 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
 
         session.beginConfiguration()
 
-        // Set session preset to .photo for high resolution capture (up to 2048px)
+        // Set session preset to .photo for high resolution capture
         session.sessionPreset = .photo
         print("CameraManager: Using .photo preset for high resolution capture")
 
-        // Input Device (Back Camera)
-        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
-              let input = try? AVCaptureDeviceInput(device: device),
-              session.canAddInput(input) else {
-             print("Error setting up camera input.")
-             DispatchQueue.main.async {
-                 self.errorMessage = CameraError.invalidInput.localizedDescription
-             }
-             session.commitConfiguration()
-             return
-        }
-        self.videoDeviceInput = input
-        session.addInput(input)
-
-        // Pre-focus at approximately 1 foot (30.48 cm) since most notebook pages are captured at this distance
-        if device.isFocusModeSupported(.autoFocus) { // General check if any autofocus mode is supported
-            do {
-                try device.lockForConfiguration()
-
-                // Set focus range restriction to near for document scanning
-                if device.isAutoFocusRangeRestrictionSupported {
-                    device.autoFocusRangeRestriction = .near
-                    print("CameraManager: Set autoFocusRangeRestriction to .near")
-                } else {
-                    print("CameraManager: autoFocusRangeRestriction.near is not supported.")
-                }
-
-                // Optimize exposure for document scanning
-                if device.isExposureModeSupported(.continuousAutoExposure) {
-                    // Use continuous auto exposure for dynamic lighting
-                    device.exposureMode = .continuousAutoExposure
-
-                    // Slightly increase exposure compensation for better text readability
-                    if device.isExposurePointOfInterestSupported {
-                        device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5) // Center of frame
-                    }
-
-                    let desiredBias: Float = 0.3
-                    if device.minExposureTargetBias <= desiredBias && desiredBias <= device.maxExposureTargetBias {
-                        device.setExposureTargetBias(desiredBias, completionHandler: nil)
-                        print("CameraManager: Set exposure target bias to \(desiredBias) for better text contrast")
-                    } else {
-                        print("CameraManager: Desired exposure bias \(desiredBias) is out of range [\(device.minExposureTargetBias), \(device.maxExposureTargetBias)]")
-                    }
-                }
-
-
-                // Set initial focus to approximately 1 foot (0.3048 meters)
-                if device.isLockingFocusWithCustomLensPositionSupported {
-                    // Try to set an initial lens position
-                    // The completion handler for setFocusModeLocked is important.
-                    // It ensures that the lens position change is complete before we try to switch to continuous autofocus.
-                    device.setFocusModeLocked(lensPosition: 0.35) { [weak self] _ in
-                        guard let self = self else { return }
-                        print("CameraManager: Initial lens position set to 0.35.")
-
-                        // Now, try to switch to continuous autofocus.
-                        // This should be done on the sessionQueue.
-                        self.sessionQueue.async {
-                            do {
-                                try device.lockForConfiguration()
-                                if device.isFocusModeSupported(.continuousAutoFocus) {
-                                    device.focusMode = .continuousAutoFocus
-                                    print("CameraManager: Switched to .continuousAutoFocus")
-
-                                    if device.isLowLightBoostSupported {
-                                        device.automaticallyEnablesLowLightBoostWhenAvailable = true
-                                        print("CameraManager: Enabled automatic low-light boost.")
-                                    }
-                                } else {
-                                    print("CameraManager: .continuousAutoFocus is not supported after setting lens position.")
-                                    // Fallback: If continuous autofocus is not supported, try .autoFocus.
-                                    if device.isFocusModeSupported(.autoFocus) {
-                                        device.focusMode = .autoFocus
-                                        print("CameraManager: Fallback to .autoFocus as .continuousAutoFocus is not supported here.")
-                                    }
-                                }
-                                device.unlockForConfiguration()
-                            } catch {
-                                print("CameraManager: Error switching to continuous autofocus: \(error.localizedDescription)")
-                            }
-                        }
-                    }
-                    print("CameraManager: Attempted to set initial lens position (async completion).")
-
-                } else {
-                    print("CameraManager: Locking focus with custom lens position is not supported.")
-                    // If we can't set a custom lens position, try to go directly to continuous autofocus.
-                    // This part of the configuration is still protected by the outer lockForConfiguration.
-                    if device.isFocusModeSupported(.continuousAutoFocus) {
-                        device.focusMode = .continuousAutoFocus
-                        print("CameraManager: Set focusMode to .continuousAutoFocus (custom lens position not supported).")
-                        if device.isLowLightBoostSupported {
-                            device.automaticallyEnablesLowLightBoostWhenAvailable = true
-                            print("CameraManager: Enabled automatic low-light boost.")
-                        }
-                    } else {
-                        print("CameraManager: .continuousAutoFocus is not supported (and custom lens position not supported).")
-                        // As a last resort, if .autoFocus is supported, use that.
-                        if device.isFocusModeSupported(.autoFocus) {
-                            device.focusMode = .autoFocus
-                            print("CameraManager: Set focusMode to .autoFocus as a fallback.")
-                        } else {
-                            print("CameraManager: No suitable autofocus mode supported.")
-                        }
-                    }
-                }
-                device.unlockForConfiguration() // Corresponds to the lock at the start of this 'do' block for focus and exposure.
-            } catch {
-                print("CameraManager: Error configuring focus/exposure: \(error.localizedDescription)")
-            }
-        } else {
-            print("CameraManager: .autoFocus mode is not supported on this device at all.")
-        }
-
-        // Check for Flash availability *after* setting up the input device
-        // Update the published property on the main thread
-        let hasFlash = device.hasFlash
-        print("[CameraManager] Device has flash: \(hasFlash)") // Log check result
-        DispatchQueue.main.async {
-            self.isFlashAvailable = hasFlash
-            // Set initial flash mode based on availability
-            if !hasFlash { self.flashMode = .off }
-            print("[CameraManager] Updated isFlashAvailable on main thread: \(self.isFlashAvailable)") // Log state update
-        }
-
-        // Output
-        guard session.canAddOutput(photoOutput) else {
-            print("Error setting up photo output.")
+        // Input Device (Back Camera) - streamlined setup
+        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+            print("Error: No back camera device found.")
             DispatchQueue.main.async {
-                 self.errorMessage = CameraError.invalidOutput.localizedDescription
-             }
+                self.errorMessage = CameraError.noDeviceFound.localizedDescription
+            }
             session.commitConfiguration()
             return
         }
-        photoOutput.maxPhotoQualityPrioritization = .quality // Prioritize quality
+        
+        guard let input = try? AVCaptureDeviceInput(device: device) else {
+            print("Error: Could not create camera input.")
+            DispatchQueue.main.async {
+                self.errorMessage = CameraError.invalidInput.localizedDescription
+            }
+            session.commitConfiguration()
+            return
+        }
+        
+        guard session.canAddInput(input) else {
+            print("Error: Cannot add camera input to session.")
+            DispatchQueue.main.async {
+                self.errorMessage = CameraError.invalidInput.localizedDescription
+            }
+            session.commitConfiguration()
+            return
+        }
+        
+        self.videoDeviceInput = input
+        session.addInput(input)
 
-        // Note: isAutoStillImageStabilizationEnabled and isHighResolutionCaptureEnabled
-        // were removed as they are either deprecated or set on AVCapturePhotoSettings.
-        // High resolution is typically handled by the sessionPreset = .photo and
-        // photoQualityPrioritization on the settings object during capture.
-        // Stabilization is also set on AVCapturePhotoSettings.
+        // Simplified focus and exposure configuration for faster startup
+        do {
+            try device.lockForConfiguration()
 
+            // Set focus range restriction to near for document scanning
+            if device.isAutoFocusRangeRestrictionSupported {
+                device.autoFocusRangeRestriction = .near
+                print("CameraManager: Set autoFocusRangeRestriction to .near")
+            }
+
+            // Set focus mode - prefer continuous autofocus for responsiveness
+            if device.isFocusModeSupported(.continuousAutoFocus) {
+                device.focusMode = .continuousAutoFocus
+                print("CameraManager: Set focusMode to .continuousAutoFocus")
+            } else if device.isFocusModeSupported(.autoFocus) {
+                device.focusMode = .autoFocus
+                print("CameraManager: Set focusMode to .autoFocus")
+            }
+
+            // Optimize exposure for document scanning
+            if device.isExposureModeSupported(.continuousAutoExposure) {
+                device.exposureMode = .continuousAutoExposure
+                
+                // Set exposure point to center
+                if device.isExposurePointOfInterestSupported {
+                    device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                }
+
+                // Slightly increase exposure for better text readability
+                let desiredBias: Float = 0.3
+                if device.minExposureTargetBias <= desiredBias && desiredBias <= device.maxExposureTargetBias {
+                    device.setExposureTargetBias(desiredBias, completionHandler: nil)
+                    print("CameraManager: Set exposure target bias to \(desiredBias)")
+                }
+            }
+
+            // Enable low light boost if available
+            if device.isLowLightBoostSupported {
+                device.automaticallyEnablesLowLightBoostWhenAvailable = true
+                print("CameraManager: Enabled automatic low-light boost")
+            }
+
+            device.unlockForConfiguration()
+        } catch {
+            print("CameraManager: Error configuring focus/exposure: \(error.localizedDescription)")
+        }
+
+        // Configure device settings and check flash availability
+        let hasFlash = device.hasFlash
+        DispatchQueue.main.async {
+            self.isFlashAvailable = hasFlash
+            if !hasFlash { self.flashMode = .off }
+        }
+
+        // Output setup - streamlined
+        guard session.canAddOutput(photoOutput) else {
+            print("Error: Cannot add photo output to session.")
+            DispatchQueue.main.async {
+                self.errorMessage = CameraError.invalidOutput.localizedDescription
+            }
+            session.commitConfiguration()
+            return
+        }
+        
+        photoOutput.maxPhotoQualityPrioritization = .quality
         session.addOutput(photoOutput)
 
         session.commitConfiguration()
@@ -301,37 +262,38 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
     // MARK: - Session Control
 
     func startSession() {
-        sessionQueue.async {
-            guard self.isAuthorized else {
-                 print("Cannot start session: Not authorized.")
-                 // Ensure error message is set if called inappropriately
-                 DispatchQueue.main.async {
-                     if self.errorMessage == nil {
-                         self.errorMessage = CameraError.authorizationDenied.localizedDescription
-                     }
-                 }
-                 return
-             }
-            guard !self.session.isRunning else { return }
-
-            // Check if setup is needed (e.g., if it failed previously or wasn't run)
-             if self.session.inputs.isEmpty || self.session.outputs.isEmpty {
-                 print("Session inputs/outputs are empty, running setup.")
-                 self.setupSession()
-                 // If setup fails again, it will set the error message.
-                 // Re-check authorization status after potential setup failure
-                 guard self.isAuthorized && !self.session.inputs.isEmpty && !self.session.outputs.isEmpty else {
-                      print("Setup failed, cannot start session.")
-                      return
-                  }
-             }
-
-            self.session.startRunning()
-            print("Camera session started.")
-            // Mark setup as complete on main thread
-            DispatchQueue.main.async {
-                self.isSetupComplete = true
+        // If called from main thread, dispatch to session queue
+        if Thread.isMainThread {
+            sessionQueue.async { [weak self] in
+                self?.startSessionInternal()
             }
+        } else {
+            startSessionInternal()
+        }
+    }
+    
+    private func startSessionInternal() {
+        guard isAuthorized else {
+            print("Cannot start session: Not authorized.")
+            DispatchQueue.main.async { [weak self] in
+                if self?.errorMessage == nil {
+                    self?.errorMessage = CameraError.authorizationDenied.localizedDescription
+                }
+            }
+            return
+        }
+        
+        guard !session.isRunning else { 
+            print("Session is already running.")
+            return 
+        }
+
+        // Start the session - setup should already be complete
+        session.startRunning()
+        print("Camera session started.")
+        
+        DispatchQueue.main.async { [weak self] in
+            self?.isSetupComplete = true
         }
     }
 

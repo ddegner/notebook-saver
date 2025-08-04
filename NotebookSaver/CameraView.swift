@@ -3,7 +3,7 @@ import AVFoundation // Needed for AVCaptureSession and sound effects
 import UIKit // For UIKit components like UIImpactFeedbackGenerator, UIApplication, etc.
 
 struct CameraView: View {
-    @StateObject private var cameraManager = CameraManager(setupOnInit: true)
+    @EnvironmentObject private var cameraManager: CameraManager
     @Binding var isShowingSettings: Bool
     
     @State private var isLoading: Bool = false
@@ -242,6 +242,13 @@ extension View {
                         errorMessage.wrappedValue = CameraManager.CameraError.authorizationDenied.localizedDescription
                         showErrorAlert.wrappedValue = true
                     }
+                }
+            }
+            .onAppear {
+                // If camera is already authorized when view appears, start session immediately
+                if cameraManager.isAuthorized && !cameraManager.session.isRunning {
+                    print("CameraView: Camera already authorized on appear, starting session.")
+                    cameraManager.startSession()
                 }
             }
     }
@@ -522,8 +529,11 @@ private extension UIEdgeInsets {
 #Preview {
     struct PreviewWrapper: View {
         @State var showSettings = false
+        @StateObject private var previewCameraManager = CameraManager(setupOnInit: true)
+        
         var body: some View {
             CameraView(isShowingSettings: $showSettings)
+                .environmentObject(previewCameraManager)
         }
     }
     return PreviewWrapper()
