@@ -174,7 +174,7 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
     private static var connectionVerified = false
 
     // Defaults
-    private let defaultModelId = "gemini-2.5-flash" // Default model if nothing is set
+    private let defaultModelId = CloudModelService.shared.loadCachedModelIds().first ?? "gemini-2.5-flash" // Default model if nothing is set
     private static let defaultApiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/"
     private let defaultDraftsTag = "notebook"
 
@@ -196,7 +196,7 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
         let endpointString = defaults.string(forKey: "apiEndpointUrlString") ?? GeminiService.defaultApiEndpoint
         let apiEndpointUrl = URL(string: endpointString)
 
-        let selectedId = defaults.string(forKey: "selectedModelId") ?? "gemini-2.5-flash"
+        let selectedId = defaults.string(forKey: "selectedModelId") ?? (CloudModelService.shared.loadCachedModelIds().first ?? "gemini-2.5-flash")
         var modelToUse: String?
         if selectedId == "Custom" {
             modelToUse = defaults.string(forKey: "customModelName")?.trimmingCharacters(in: .whitespacesAndNewlines)
