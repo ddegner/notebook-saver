@@ -10,6 +10,7 @@
 		7F3764E12DC566A20038F019 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7F3764E02DC566A20038F019 /* WidgetKit.framework */; };
 		7F3764E32DC566A20038F019 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7F3764E22DC566A20038F019 /* SwiftUI.framework */; };
 		7F3764F22DC566A40038F019 /* Cat NoteWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7F3764DE2DC566A20038F019 /* Cat NoteWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		7F3765282DC5AAAA0038F019 /* Cat ShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7F3765102DC5AAAA0038F019 /* Cat ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -19,6 +20,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 7F3764DD2DC566A20038F019;
 			remoteInfo = NotebookSaverWidgetsExtension;
+		};
+		7F3765262DC5AAAA0038F019 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7F3764A22DC45A9C0038F019 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7F3765202DC5AAAA0038F019;
+			remoteInfo = Cat ShareExtension;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -30,6 +38,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				7F3764F22DC566A40038F019 /* Cat NoteWidgetsExtension.appex in Embed Foundation Extensions */,
+				7F3765282DC5AAAA0038F019 /* Cat ShareExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -39,6 +48,7 @@
 /* Begin PBXFileReference section */
 		7F3764AA2DC45A9C0038F019 /* Cat Scribe.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Cat Scribe.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7F3764DE2DC566A20038F019 /* Cat NoteWidgetsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Cat NoteWidgetsExtension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		7F3765102DC5AAAA0038F019 /* Cat ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Cat ShareExtension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7F3764E02DC566A20038F019 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		7F3764E22DC566A20038F019 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
@@ -58,6 +68,13 @@
 			);
 			target = 7F3764DD2DC566A20038F019 /* Cat NoteWidgetsExtension */;
 		};
+		7F3765162DC5AAAA0038F019 /* Exceptions for "NotebookSaverShareExtension" folder in "Cat ShareExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 7F3765202DC5AAAA0038F019 /* Cat ShareExtension */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -75,6 +92,14 @@
 				7F3764F62DC566A40038F019 /* Exceptions for "NotebookSaverWidgets" folder in "Cat NoteWidgetsExtension" target */,
 			);
 			path = NotebookSaverWidgets;
+			sourceTree = "<group>";
+		};
+		7F3765152DC5AAAA0038F019 /* NotebookSaverShareExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				7F3765162DC5AAAA0038F019 /* Exceptions for "NotebookSaverShareExtension" folder in "Cat ShareExtension" target */,
+			);
+			path = NotebookSaverShareExtension;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -96,6 +121,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		7F3765212DC5AAAA0038F019 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -104,6 +136,7 @@
 			children = (
 				7F3764AC2DC45A9C0038F019 /* NotebookSaver */,
 				7F3764E42DC566A20038F019 /* NotebookSaverWidgets */,
+				7F3765152DC5AAAA0038F019 /* NotebookSaverShareExtension */,
 				7F3764DF2DC566A20038F019 /* Frameworks */,
 				7F3764AB2DC45A9C0038F019 /* Products */,
 			);
@@ -114,6 +147,7 @@
 			children = (
 				7F3764AA2DC45A9C0038F019 /* Cat Scribe.app */,
 				7F3764DE2DC566A20038F019 /* Cat NoteWidgetsExtension.appex */,
+				7F3765102DC5AAAA0038F019 /* Cat ShareExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -143,6 +177,7 @@
 			);
 			dependencies = (
 				7F3764F12DC566A40038F019 /* PBXTargetDependency */,
+				7F3765272DC5AAAA0038F019 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				7F3764AC2DC45A9C0038F019 /* NotebookSaver */,
@@ -176,6 +211,28 @@
 			productReference = 7F3764DE2DC566A20038F019 /* Cat NoteWidgetsExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		7F3765202DC5AAAA0038F019 /* Cat ShareExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7F3765252DC5AAAA0038F019 /* Build configuration list for PBXNativeTarget "Cat ShareExtension" */;
+			buildPhases = (
+				7F3765222DC5AAAA0038F019 /* Sources */,
+				7F3765212DC5AAAA0038F019 /* Frameworks */,
+				7F3765232DC5AAAA0038F019 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				7F3765152DC5AAAA0038F019 /* NotebookSaverShareExtension */,
+			);
+			name = "Cat ShareExtension";
+			packageProductDependencies = (
+			);
+			productName = NotebookSaverShareExtension;
+			productReference = 7F3765102DC5AAAA0038F019 /* Cat ShareExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -191,6 +248,9 @@
 						LastSwiftMigration = 1630;
 					};
 					7F3764DD2DC566A20038F019 = {
+						CreatedOnToolsVersion = 16.3;
+					};
+					7F3765202DC5AAAA0038F019 = {
 						CreatedOnToolsVersion = 16.3;
 					};
 				};
@@ -213,6 +273,7 @@
 			targets = (
 				7F3764A92DC45A9C0038F019 /* Cat Scribe */,
 				7F3764DD2DC566A20038F019 /* Cat NoteWidgetsExtension */,
+				7F3765202DC5AAAA0038F019 /* Cat ShareExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -226,6 +287,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		7F3764DC2DC566A20038F019 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7F3765232DC5AAAA0038F019 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -249,6 +317,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		7F3765222DC5AAAA0038F019 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -256,6 +331,11 @@
 			isa = PBXTargetDependency;
 			target = 7F3764DD2DC566A20038F019 /* Cat NoteWidgetsExtension */;
 			targetProxy = 7F3764F02DC566A40038F019 /* PBXContainerItemProxy */;
+		};
+		7F3765272DC5AAAA0038F019 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7F3765202DC5AAAA0038F019 /* Cat ShareExtension */;
+			targetProxy = 7F3765262DC5AAAA0038F019 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -495,6 +575,31 @@
 			};
 			name = Debug;
 		};
+		7F37651A2DC5AAAA0038F019 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = NotebookSaverShareExtension/NotebookSaverShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Q26G342EEL;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = NotebookSaverShareExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Share to Cat Scribe";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.daviddegner.NotebookSaver.Share;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
 		7F3764F52DC566A40038F019 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -519,6 +624,31 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		7F37651B2DC5AAAA0038F019 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = NotebookSaverShareExtension/NotebookSaverShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = Q26G342EEL;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = NotebookSaverShareExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Share to Cat Scribe";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.daviddegner.NotebookSaver.Share;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -548,6 +678,15 @@
 			buildConfigurations = (
 				7F3764F42DC566A40038F019 /* Debug */,
 				7F3764F52DC566A40038F019 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7F3765252DC5AAAA0038F019 /* Build configuration list for PBXNativeTarget "Cat ShareExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7F37651A2DC5AAAA0038F019 /* Debug */,
+				7F37651B2DC5AAAA0038F019 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
