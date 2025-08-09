@@ -37,6 +37,9 @@ struct NotebookSaverApp: App {
                         .environmentObject(appState)
                         .interactiveDismissDisabled()
                 }
+                .onOpenURL { url in
+                    SharedImportHandler.handleIncomingURL(url)
+                }
         }
     }
     

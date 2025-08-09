@@ -400,7 +400,7 @@ extension CameraView {
             try await sendToDraftsApp(text: finalText, tags: combinedTags)
         } else {
             print("Drafts app is not installed. Presenting share sheet.")
-            presentShareSheet(text: finalText)
+            await MainActor.run { SharingHelper.presentShareSheet(text: finalText) }
             print("Share sheet presented (or attempted).")
         }
     }
@@ -420,30 +420,7 @@ extension CameraView {
         }
     }
 
-    @MainActor
-    private func presentShareSheet(text: String) {
-        let activityItems: [Any] = [text]
 
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let rootViewController = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
-            print("Error: Could not find root view controller to present share sheet.")
-            self.errorMessage = "Could not initiate sharing."
-            self.showErrorAlert = true
-            return
-        }
-
-        let activityViewController = UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
-
-        if let popoverController = activityViewController.popoverPresentationController {
-            popoverController.sourceView = rootViewController.view
-            popoverController.sourceRect = CGRect(x: rootViewController.view.bounds.midX,
-                                                y: rootViewController.view.bounds.midY,
-                                                width: 0, height: 0)
-            popoverController.permittedArrowDirections = []
-        }
-
-        rootViewController.present(activityViewController, animated: true, completion: nil)
-    }
 
     private func playShutterSound() {
         AudioServicesPlaySystemSound(1108)
