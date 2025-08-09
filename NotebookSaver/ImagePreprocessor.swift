@@ -95,7 +95,7 @@ struct ImageProcessor {
         CGImageDestinationAddImage(destination, cgImage, properties)
 
         if CGImageDestinationFinalize(destination) {
-            print("ImageProcessor: Encoded UIImage to HEIC data (\\(imageData.length) bytes) with quality \\(compressionQuality).")
+            print("ImageProcessor: Encoded UIImage to HEIC data (\(imageData.length) bytes) with quality \(compressionQuality).")
             return imageData as Data
         } else {
             print("ImageProcessor: Failed to finalize HEIC encoding.")

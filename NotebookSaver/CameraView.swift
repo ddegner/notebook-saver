@@ -10,8 +10,6 @@ struct CameraView: View {
     @State private var errorMessage: String?
     @State private var showErrorAlert = false
     @State private var currentQuote: (quote: String, author: String)?
-    
-    @Environment(\.safeAreaInsets) private var safeAreaInsets
 
     private func isDraftsAppInstalled() -> Bool {
         guard let draftsURL = URL(string: "drafts://") else { return false }
@@ -20,6 +18,7 @@ struct CameraView: View {
 
     var body: some View {
         GeometryReader { geometry in
+            let safeAreaInsets = geometry.safeAreaInsets
             let screenWidth = geometry.size.width
             let screenHeight = geometry.size.height
             let cameraHeight = screenWidth * (4.0/3.0)
@@ -60,7 +59,7 @@ struct CameraView: View {
                     style: .continuous
                 )
             )
-            .edgesIgnoringSafeArea(.all)
+            .ignoresSafeArea()
             .persistentSystemOverlays(.hidden)
         }
         .setupCameraView(
@@ -499,31 +498,7 @@ struct CaptureButtonView: View {
     }
 }
 
-// MARK: - Error Types and Extensions
-
-extension EnvironmentValues {
-    var safeAreaInsets: EdgeInsets {
-        self[SafeAreaInsetsKey.self]
-    }
-}
-
-private struct SafeAreaInsetsKey: EnvironmentKey {
-    static var defaultValue: EdgeInsets {
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else {
-            return .init()
-        }
-        guard let keyWindow = windowScene.windows.first(where: { $0.isKeyWindow }) else {
-            return .init()
-        }
-        return keyWindow.safeAreaInsets.insets
-    }
-}
-
-private extension UIEdgeInsets {
-    var insets: EdgeInsets {
-        EdgeInsets(top: top, leading: left, bottom: bottom, trailing: right)
-    }
-}
+// Legacy safe area helpers removed in favor of SwiftUI-native geometry safe area insets
 
 // MARK: - Preview
 #Preview {
@@ -539,71 +514,4 @@ private extension UIEdgeInsets {
     return PreviewWrapper()
 }
 
-// MARK: - Button Styles (Legacy - keeping for compatibility)
-extension View {
-    func pressEffect() -> some View {
-        buttonStyle(PhysicalButtonStyle())
-    }
-    
-    func iosCaptureButtonStyle() -> some View {
-        buttonStyle(IOSCaptureButtonStyle())
-    }
-    
-    func recessedButtonStyle() -> some View {
-        buttonStyle(RecessedButtonStyle())
-    }
-}
-
-struct PhysicalButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: configuration.isPressed)
-    }
-}
-
-struct IOSCaptureButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        ZStack {
-            Circle()
-                .stroke(Color.white, lineWidth: 4)
-                .frame(width: 90, height: 90)
-            
-            Circle()
-                .fill(Color.white)
-                .frame(width: 78, height: 78)
-                .scaleEffect(configuration.isPressed ? 0.85 : 1.0)
-                .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
-        }
-        .onChange(of: configuration.isPressed) { _, newValue in
-            if newValue {
-                let generator = UIImpactFeedbackGenerator(style: .medium)
-                generator.impactOccurred(intensity: 0.8)
-            }
-        }
-    }
-}
-
-struct RecessedButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        ButtonStyleBody(configuration: configuration)
-    }
-
-    private struct ButtonStyleBody: View {
-        let configuration: ButtonStyle.Configuration
-        @State private var wasPressed = false
-
-        var body: some View {
-            configuration.label
-                .opacity(configuration.isPressed ? 0.7 : 1.0)
-                .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
-                .animation(.spring(response: 0.15, dampingFraction: 0.8), value: configuration.isPressed)
-                .onChange(of: configuration.isPressed) { _, newValue in
-                    if newValue && !wasPressed {
-                        let generator = UIImpactFeedbackGenerator(style: .light)
-                        generator.impactOccurred(intensity: 0.5)
-                    }
-                    wasPressed = newValue
-                }
-        }
-    }
-}
+// Intentionally removed unused legacy button styles to keep the codebase lean

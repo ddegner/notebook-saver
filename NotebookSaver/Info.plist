@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>NSCameraUsageDescription</key>
+    <string>NotebookSaver needs camera access to capture pages.</string>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>NotebookSaver saves captured photos to your library when enabled in settings.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

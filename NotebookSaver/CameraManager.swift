@@ -5,24 +5,25 @@ import Photos // For saving to photo library
 
 class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
 
-    @Published var session = AVCaptureSession()
-    @Published var isAuthorized = false
-    @Published var errorMessage: String? // Published for CameraView to observe
-    @Published var permissionRequested = false // Track if permission has been asked
-    @Published var isSetupComplete = false // Track if setup has completed
+    // Expose session as immutable reference; it is configured but never replaced
+    let session = AVCaptureSession()
+    @Published private(set) var isAuthorized = false
+    @Published private(set) var errorMessage: String? // Observed by views
+    @Published private(set) var permissionRequested = false // Track if permission has been asked
+    @Published private(set) var isSetupComplete = false // Track if setup has completed
 
     // --- Flash Control ---
-    @Published var flashMode: AVCaptureDevice.FlashMode = .auto // Default to Auto
-    @Published var isFlashAvailable = false
+    @Published private(set) var flashMode: AVCaptureDevice.FlashMode = .auto // Default to Auto
+    @Published private(set) var isFlashAvailable = false
     // ---------------------
 
     // --- Photo Saving ---
-    @Published var lastSavedPhotoLocalIdentifier: String? // For linking to saved photos
+    @Published private(set) var lastSavedPhotoLocalIdentifier: String? // For linking to saved photos
     // -------------------
 
-    private var photoOutput = AVCapturePhotoOutput()
+    private let photoOutput = AVCapturePhotoOutput()
     private var videoDeviceInput: AVCaptureDeviceInput?
-    private var sessionQueue = DispatchQueue(label: "com.example.notebooksaver.sessionQueue")
+    private let sessionQueue = DispatchQueue(label: "com.example.notebooksaver.sessionQueue")
     // Define CameraError enum
     enum CameraError: Error {
         case authorizationDenied
@@ -125,7 +126,7 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
                             self?.isAuthorized = false
                             self?.errorMessage = CameraError.authorizationDenied.localizedDescription
                         }
-                        print("Camera permission denied.")
+                        print("Camera permission denied by user.")
                     }
                 }
             case .denied, .restricted:
@@ -188,52 +189,7 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
         self.videoDeviceInput = input
         session.addInput(input)
 
-        // Simplified focus and exposure configuration for faster startup
-        do {
-            try device.lockForConfiguration()
-
-            // Set focus range restriction to near for document scanning
-            if device.isAutoFocusRangeRestrictionSupported {
-                device.autoFocusRangeRestriction = .near
-                print("CameraManager: Set autoFocusRangeRestriction to .near")
-            }
-
-            // Set focus mode - prefer continuous autofocus for responsiveness
-            if device.isFocusModeSupported(.continuousAutoFocus) {
-                device.focusMode = .continuousAutoFocus
-                print("CameraManager: Set focusMode to .continuousAutoFocus")
-            } else if device.isFocusModeSupported(.autoFocus) {
-                device.focusMode = .autoFocus
-                print("CameraManager: Set focusMode to .autoFocus")
-            }
-
-            // Optimize exposure for document scanning
-            if device.isExposureModeSupported(.continuousAutoExposure) {
-                device.exposureMode = .continuousAutoExposure
-                
-                // Set exposure point to center
-                if device.isExposurePointOfInterestSupported {
-                    device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
-                }
-
-                // Slightly increase exposure for better text readability
-                let desiredBias: Float = 0.3
-                if device.minExposureTargetBias <= desiredBias && desiredBias <= device.maxExposureTargetBias {
-                    device.setExposureTargetBias(desiredBias, completionHandler: nil)
-                    print("CameraManager: Set exposure target bias to \(desiredBias)")
-                }
-            }
-
-            // Enable low light boost if available
-            if device.isLowLightBoostSupported {
-                device.automaticallyEnablesLowLightBoostWhenAvailable = true
-                print("CameraManager: Enabled automatic low-light boost")
-            }
-
-            device.unlockForConfiguration()
-        } catch {
-            print("CameraManager: Error configuring focus/exposure: \(error.localizedDescription)")
-        }
+        // Drop manual device configuration tweaks for faster startup; rely on sensible defaults
 
         // Configure device settings and check flash availability
         let hasFlash = device.hasFlash
@@ -265,14 +221,14 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
         // If called from main thread, dispatch to session queue
         if Thread.isMainThread {
             sessionQueue.async { [weak self] in
-                self?.startSessionInternal()
+                self?.startSessionWithRetry()
             }
         } else {
-            startSessionInternal()
+            startSessionWithRetry()
         }
     }
     
-    private func startSessionInternal() {
+    private func startSessionWithRetry(attempts: Int = 3) {
         guard isAuthorized else {
             print("Cannot start session: Not authorized.")
             DispatchQueue.main.async { [weak self] in
@@ -290,10 +246,33 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
 
         // Start the session - setup should already be complete
         session.startRunning()
-        print("Camera session started.")
         
-        DispatchQueue.main.async { [weak self] in
-            self?.isSetupComplete = true
+        // Verify session actually started
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self else { return }
+            
+            if self.session.isRunning {
+                print("Camera session started successfully.")
+                self.isSetupComplete = true
+            } else {
+                print("Camera session failed to start, attempt \(4 - attempts) of 3")
+                
+                if attempts > 1 {
+                    // Retry with exponential backoff
+                    let delay = Double(4 - attempts) * 0.5 // 0.5s, 1.0s, 1.5s
+                    print("Retrying camera session start in \(delay) seconds...")
+                    
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                        self.startSessionWithRetry(attempts: attempts - 1)
+                    }
+                } else {
+                    // Max attempts reached
+                    print("Camera session failed to start after 3 attempts")
+                    DispatchQueue.main.async {
+                        self.errorMessage = "Failed to start camera after multiple attempts. Please restart the app."
+                    }
+                }
+            }
         }
     }
 
@@ -350,11 +329,11 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
                  // settings.flashMode = .off
              }
 
-             // Store the completion handler
-             self.photoCaptureCompletion = completion
+              // Store the completion handler
+              self.photoCaptureCompletion = completion
 
              // Perform capture
-             self.photoOutput.capturePhoto(with: settings, delegate: self)
+              self.photoOutput.capturePhoto(with: settings, delegate: self)
              print("Photo capture initiated.")
          }
      }

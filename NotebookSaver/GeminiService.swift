@@ -178,7 +178,7 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
     private static let defaultApiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/"
     private let defaultDraftsTag = "notebook"
 
-    private let highMaxImageDimension: CGFloat = 1500.0 // Set to 1500px as requested
+    private let highMaxImageDimension: CGFloat = 1280.0 // Reduced for faster upload
     
     // Retry configuration
     private let maxRetryAttempts = 2 // Reduced from 3 for faster failure detection
@@ -218,55 +218,68 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
     // MARK: - Connection Warming
 
     public static func warmUpConnection() async -> Bool {
-        print("GeminiService: Testing connection...")
-        let defaults = UserDefaults.standard
-        let apiKey = KeychainService.loadAPIKey()
+        print("GeminiService: Warming up exact generateContent endpoint...")
+        let settings = GeminiService.getSettings()
 
-        let endpointString = defaults.string(forKey: "apiEndpointUrlString") ?? defaultApiEndpoint
-        guard let apiBaseUrl = URL(string: endpointString) else {
-            print("GeminiService (WarmUp): Invalid API Endpoint URL configured: \(endpointString)")
+        guard let apiKey = settings.apiKey, !apiKey.isEmpty else {
+            print("GeminiService (WarmUp): API Key is missing. Skipping warm-up.")
+            return false
+        }
+        guard let baseUrl = settings.apiEndpointUrl else {
+            print("GeminiService (WarmUp): Invalid API Endpoint URL.")
+            return false
+        }
+        guard let model = settings.modelToUse, !model.isEmpty else {
+            print("GeminiService (WarmUp): No model configured. Skipping warm-up.")
             return false
         }
 
-        guard let key = apiKey, !key.isEmpty else {
-            print("GeminiService (WarmUp): API Key is missing. Skipping connection warm-up.")
-            return false
-        }
+        // Build exact generateContent URL for the configured model
+        let requestUrl = baseUrl.appendingPathComponent("\(model):generateContent")
+        var request = URLRequest(url: requestUrl)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10.0
 
-        // Use a lightweight endpoint, like listing models
-        // The base URL already ends with "models/", so we don't append "models" again
-        let warmUpUrl = apiBaseUrl
-        var request = URLRequest(url: warmUpUrl)
-        request.httpMethod = "GET" // Typically, listing models is a GET request
-        request.timeoutInterval = 10.0 // Add timeout for connection test
-
-        var urlComponents = URLComponents(url: warmUpUrl, resolvingAgainstBaseURL: false)
-        urlComponents?.queryItems = [URLQueryItem(name: "key", value: key)]
-
+        var urlComponents = URLComponents(url: requestUrl, resolvingAgainstBaseURL: false)
+        urlComponents?.queryItems = [URLQueryItem(name: "key", value: apiKey)]
         guard let finalUrl = urlComponents?.url else {
-            print("GeminiService (WarmUp): Failed to construct URL with API key.")
+            print("GeminiService (WarmUp): Failed to append API key to URL.")
             return false
         }
         request.url = finalUrl
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        // Minimal text-only request with temperature 0 and tiny output to reduce cost/time
+        let warmupBody = GeminiRequest(
+            contents: [GeminiRequest.Content(parts: [GeminiRequest.Part(text: "ping")])],
+            generationConfig: GeminiRequest.GenerationConfig(temperature: 0, maxOutputTokens: 1)
+        )
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let jsonData = try JSONEncoder().encode(warmupBody)
+            request.httpBody = jsonData
+        } catch {
+            print("GeminiService (WarmUp): Failed to encode warm-up request: \(error.localizedDescription)")
+            return false
+        }
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
-                print("GeminiService (WarmUp): Invalid response from server.")
+                print("GeminiService (WarmUp): Invalid response type.")
                 return false
             }
-
             if (200...299).contains(httpResponse.statusCode) {
-                print("GeminiService (WarmUp): Connection successful (Status: \(httpResponse.statusCode)). Ready for requests.")
+                print("GeminiService (WarmUp): Ready (Status: \(httpResponse.statusCode)).")
                 connectionVerified = true
                 return true
             } else {
-                print("GeminiService (WarmUp): Connection attempt failed with status code: \(httpResponse.statusCode). Response: \(String(data: data, encoding: .utf8) ?? "No response body")")
+                print("GeminiService (WarmUp): Warm-up failed (Status: \(httpResponse.statusCode)).")
                 connectionVerified = false
                 return false
             }
         } catch {
-            print("GeminiService (WarmUp): Network error during connection warm-up: \(error.localizedDescription)")
+            print("GeminiService (WarmUp): Network error: \(error.localizedDescription)")
             connectionVerified = false
             return false
         }
@@ -447,8 +460,8 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
                     // within the first candidate's content.
                     // We need to concatenate the text from all parts to ensure the full result is captured.
                     let allPartsText = decodedResponse.candidates?.first?.content?.parts?
-                        .compactMap { $0.text } // Get text from each part, ignoring nil
-                        .joined(separator: "\\\\n\\\\n") // Join parts, maybe with double newline
+                        .compactMap { $0.text }
+                        .joined(separator: "\n\n")
 
                     guard let text = allPartsText, !text.isEmpty else {
                         throw APIError.noTextFound
@@ -495,11 +508,15 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
 
     // MARK: - Request Body Construction
 
-    private func createRequestBody(prompt: String, base64Image: String) -> GeminiRequest {
-        // Construct the request body based on API documentation
-        let imagePart = GeminiRequest.Part(inlineData: GeminiRequest.Part.InlineData(mimeType: "image/heic", data: base64Image))
-        let textPart = GeminiRequest.Part(text: prompt)
-        return GeminiRequest(contents: [GeminiRequest.Content(parts: [textPart, imagePart])])
+    private func createRequestBody(prompt: String, base64Image: String?) -> GeminiRequest {
+        var parts: [GeminiRequest.Part] = [GeminiRequest.Part(text: prompt)]
+        if let base64 = base64Image {
+            parts.append(GeminiRequest.Part(inlineData: GeminiRequest.Part.InlineData(mimeType: "image/heic", data: base64)))
+        }
+        return GeminiRequest(
+            contents: [GeminiRequest.Content(parts: parts)],
+            generationConfig: GeminiRequest.GenerationConfig(temperature: 0, maxOutputTokens: nil)
+        )
     }
 }
 
@@ -535,7 +552,18 @@ struct GeminiRequest: Codable {
         }
     }
 
+    struct GenerationConfig: Codable {
+        let temperature: Double?
+        let maxOutputTokens: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case temperature
+            case maxOutputTokens = "max_output_tokens"
+        }
+    }
+
     let contents: [Content]
+    let generationConfig: GenerationConfig?
     // thinkingBudget not supported in current API version
 }
 

@@ -44,32 +44,14 @@ struct ContentView: View {
                     }
                     .onEnded { value in
                         let dragThreshold: CGFloat = 80
-                        let velocityThreshold: CGFloat = 800
-                        
-                        // Use the actual drag gesture velocity
-                        let velocity = value.velocity.height
-                        
-                        // Determine if we should toggle settings based on drag distance and velocity
+
+                        // Determine if we should toggle settings based purely on drag distance and direction
                         let shouldToggle: Bool
-                        
+
                         if abs(value.translation.height) > dragThreshold {
-                            // If drag distance is significant, use direction to determine toggle
                             if value.translation.height < 0 && !isShowingSettings {
-                                // Swipe up when in camera view -> show settings
                                 shouldToggle = true
                             } else if value.translation.height > 0 && isShowingSettings {
-                                // Swipe down when in settings view -> show camera
-                                shouldToggle = true
-                            } else {
-                                shouldToggle = false
-                            }
-                        } else if abs(velocity) > velocityThreshold {
-                            // If velocity is high, use velocity direction
-                            if velocity < 0 && !isShowingSettings {
-                                // Fast swipe up when in camera view -> show settings
-                                shouldToggle = true
-                            } else if velocity > 0 && isShowingSettings {
-                                // Fast swipe down when in settings view -> show camera
                                 shouldToggle = true
                             } else {
                                 shouldToggle = false
@@ -77,12 +59,11 @@ struct ContentView: View {
                         } else {
                             shouldToggle = false
                         }
-                        
+
                         if shouldToggle {
-                            // Toggle the settings state
                             isShowingSettings.toggle()
                         }
-                        
+
                         // Always snap back to the discrete position
                         withAnimation(.easeInOut(duration: 0.1)) {
                             dragOffset = 0
@@ -112,7 +93,7 @@ struct ContentView: View {
                 }
             }
         }
-        .edgesIgnoringSafeArea(.all)
+        .ignoresSafeArea()
     }
     
     // MARK: - Sound Functions
