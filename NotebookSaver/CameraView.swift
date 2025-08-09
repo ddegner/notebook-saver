@@ -302,7 +302,7 @@ extension CameraView {
         } catch let error as CameraManager.CameraError {
             await handleError(error.localizedDescription)
         } catch let error as APIError {
-            await handleError("Gemini Error: \(error.localizedDescription)")
+            await handleError("Cloud Error: \(error.localizedDescription)")
         } catch let error as VisionError {
             await handleError("Vision Error: \(error.localizedDescription)")
         } catch let error as DraftsError {
@@ -326,14 +326,14 @@ extension CameraView {
     
     private func extractTextFromProcessedImage(_ processedImage: UIImage) async throws -> String {
         let defaults = UserDefaults.standard
-        let selectedServiceRaw = defaults.string(forKey: "textExtractorService") ?? TextExtractorType.gemini.rawValue
-        var selectedService = TextExtractorType(rawValue: selectedServiceRaw) ?? .gemini
+        let selectedServiceRaw = defaults.string(forKey: "textExtractorService") ?? TextExtractorType.cloud.rawValue
+        var selectedService = TextExtractorType(rawValue: selectedServiceRaw) ?? .cloud
 
-        // Check if Gemini is properly configured, fallback to Vision if not
-        if selectedService == .gemini {
+        // Check if Cloud is properly configured, fallback to Vision if not
+        if selectedService == .cloud {
             let apiKey = KeychainService.loadAPIKey()
             if apiKey?.isEmpty ?? true {
-                print("Gemini selected but API key is missing, falling back to Vision")
+                print("Cloud selected but API key is missing, falling back to Vision")
                 selectedService = .vision
             }
         }
@@ -342,9 +342,9 @@ extension CameraView {
 
         let textExtractor: ImageTextExtractor
         switch selectedService {
-        case .gemini:
+        case .cloud:
             textExtractor = GeminiService()
-            print("Using Gemini Service with processed image")
+            print("Using Cloud Service with processed image")
         case .vision:
             textExtractor = VisionService()
             print("Using Vision Service with processed image")

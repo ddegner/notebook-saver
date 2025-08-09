@@ -5,13 +5,13 @@ import CoreImage // Import Core Image
 
 // MARK: - Model Management Service
 
-class GeminiModelService: ObservableObject {
-    static let shared = GeminiModelService()
+class CloudModelService: ObservableObject {
+    static let shared = CloudModelService()
     private init() {}
     
     // Storage keys
     private enum StorageKeys {
-        static let cachedModels = "cachedGeminiModels"
+        static let cachedModels = "cachedCloudModels"
         static let hasInitiallyFetchedModels = "hasInitiallyFetchedModels"
     }
     
@@ -174,7 +174,7 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
     private static var connectionVerified = false
 
     // Defaults
-    private let defaultModelId = "gemini-2.5-flash" // Default model if nothing is set
+    private let defaultModelId = CloudModelService.shared.loadCachedModelIds().first ?? "gemini-2.5-flash" // Default model if nothing is set
     private static let defaultApiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/"
     private let defaultDraftsTag = "notebook"
 
@@ -189,14 +189,14 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
 
     // Helper to get settings from UserDefaults
     static func getSettings() -> (apiKey: String?, apiEndpointUrl: URL?, modelToUse: String?, prompt: String?, draftsTag: String, thinkingEnabled: Bool) {
-        let defaults = UserDefaults.standard
+        let defaults = SharedDefaults.suite
 
         let apiKey = KeychainService.loadAPIKey()
 
         let endpointString = defaults.string(forKey: "apiEndpointUrlString") ?? GeminiService.defaultApiEndpoint
         let apiEndpointUrl = URL(string: endpointString)
 
-        let selectedId = defaults.string(forKey: "selectedModelId") ?? "gemini-2.5-flash"
+        let selectedId = defaults.string(forKey: "selectedModelId") ?? (CloudModelService.shared.loadCachedModelIds().first ?? "gemini-2.5-flash")
         var modelToUse: String?
         if selectedId == "Custom" {
             modelToUse = defaults.string(forKey: "customModelName")?.trimmingCharacters(in: .whitespacesAndNewlines)

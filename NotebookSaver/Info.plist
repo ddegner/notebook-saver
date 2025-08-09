@@ -23,5 +23,9 @@
 	<array>
 		<string>drafts</string>
 	</array>
+    <key>IntentsSupportedIntents</key>
+    <array>
+        <string>ProcessPhotoIntent</string>
+    </array>
 </dict>
 </plist>

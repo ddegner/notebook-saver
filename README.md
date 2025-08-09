@@ -1,6 +1,6 @@
 # NotebookSaver
 
-A powerful iOS app that transforms handwritten notes and documents into digital text using AI-powered optical character recognition (OCR). Capture images with your camera and instantly extract text using Google's Gemini AI models.
+A powerful iOS app that transforms handwritten notes and documents into digital text using AI-powered optical character recognition (OCR). Capture images with your camera and instantly extract text using Cloud AI models (e.g., Gemini, OpenAI-compatible).
 
 ## Features
 
@@ -10,9 +10,9 @@ A powerful iOS app that transforms handwritten notes and documents into digital 
 - High-quality HEIC image encoding for efficient processing
 
 ### 🤖 AI-Powered Text Extraction
-- Integration with Google Gemini AI models (2.5 Flash, 2.0 Flash, 1.5 Pro, and more)
+- Integration with Cloud AI models (e.g., Gemini family)
 - Customizable prompts to guide AI text extraction
-- Support for multiple Gemini model variants
+- Support for multiple Cloud model variants
 - Automatic model discovery and caching
 - "Thinking mode" for enhanced AI reasoning
 
@@ -39,12 +39,12 @@ A powerful iOS app that transforms handwritten notes and documents into digital 
 
 - iOS 18.0 or later
 - iPhone with camera
-- Google Gemini API key
+- Cloud AI API key
 - Drafts app (optional, for text export)
 
 ## Setup
 
-### 1. Get a Gemini API Key
+### 1. Get a Cloud API Key
 1. Visit the [Google AI Studio](https://aistudio.google.com/)
 2. Create a new project or select an existing one
 3. Generate an API key for the Gemini API
@@ -54,7 +54,7 @@ A powerful iOS app that transforms handwritten notes and documents into digital 
 1. Launch NotebookSaver
 2. Complete the onboarding process
 3. Go to Settings (swipe up from camera view)
-4. Enter your Gemini API key
+4. Enter your Cloud API key
 5. Select your preferred AI model
 6. Customize the text extraction prompt
 7. Configure Drafts integration (optional)
@@ -126,7 +126,7 @@ The app follows a clean architecture pattern with:
 ## Privacy
 
 NotebookSaver respects your privacy:
-- Images are processed by Google's Gemini API according to their privacy policy
+- Images are processed by your selected Cloud AI provider according to their privacy policy
 - No images or text are stored locally on your device
 - API keys are stored securely in the iOS Keychain
 - No analytics or tracking
@@ -136,7 +136,7 @@ NotebookSaver respects your privacy:
 ### Common Issues
 
 **"API Key is missing"**
-- Ensure you've entered a valid Gemini API key in Settings
+- Ensure you've entered a valid Cloud AI API key in Settings
 
 **"Model not found"**
 - Try refreshing the models list in Settings
@@ -152,7 +152,7 @@ NotebookSaver respects your privacy:
 - Ensure Drafts integration is enabled in Settings
 
 ### Performance Tips
-- Use Gemini 2.5 Flash for the best speed/accuracy balance
+- Use a fast Cloud model (e.g., Gemini 2.5 Flash) for the best speed/accuracy balance
 - Ensure good lighting when capturing images
 - Keep text images clear and well-focused
 - Use the highest quality camera settings
@@ -163,8 +163,8 @@ This is a personal project, but feedback and suggestions are welcome. Please ens
 
 ## License
 
-This project is for personal use. Please respect Google's Gemini API terms of service and usage limits.
+This project is for personal use. Please respect your Cloud AI provider's terms of service and usage limits.
 
 ---
 
-**Note**: This app requires a Google Gemini API key and active internet connection to function. API usage may incur costs based on Google's pricing structure.
+**Note**: This app requires a Cloud AI API key and active internet connection to function. API usage may incur costs based on your provider's pricing.

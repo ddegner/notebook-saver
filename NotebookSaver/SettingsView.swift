@@ -74,7 +74,7 @@ struct SettingsView: View {
     }
 
     // === Persisted Settings ===
-    @AppStorage(StorageKeys.selectedModelId) private var selectedModelId: String = "gemini-2.5-flash"
+    @AppStorage(StorageKeys.selectedModelId) private var selectedModelId: String = CloudModelService.shared.loadCachedModelIds().first ?? "gemini-2.5-flash"
     @AppStorage(StorageKeys.userPrompt) private var userPrompt: String = """
         Output the text from the image as text. Start immediately with the first word. Format for clarity, format blocks of text into paragraphs, and use markdown sparingly where useful. Usually sentences and paragraphs will make sense. Do not include an intro like: "Here is the text extracted from the image:"
         """
@@ -110,7 +110,7 @@ struct SettingsView: View {
     @State private var availableModels: [String] = []
     @State private var isRefreshingModels = false
     @State private var modelsRefreshError: String?
-    @ObservedObject private var modelService = GeminiModelService.shared
+    @ObservedObject private var modelService = CloudModelService.shared
 
     // Focus state for text fields to enable tap-to-dismiss
     @FocusState private var isPromptFocused: Bool
@@ -119,8 +119,8 @@ struct SettingsView: View {
     @FocusState private var isPhotoFolderFocused: Bool
     @FocusState private var isApiEndpointFocused: Bool
 
-    // Check if Gemini service is properly configured
-    private var isGeminiConfigured: Bool {
+    // Check if Cloud service is properly configured
+    private var isCloudConfigured: Bool {
         return !apiKey.isEmpty && connectionStatus != .failure
     }
     
@@ -447,8 +447,8 @@ struct SettingsView: View {
                     .animation(.easeInOut(duration: 0.2), value: textExtractorService)
                     
                     // Show different content based on selected service
-                    if textExtractorService == TextExtractorType.gemini.rawValue {
-                        // Cloud (Gemini) settings
+                    if textExtractorService == TextExtractorType.cloud.rawValue {
+                        // Cloud settings
                         
                         // AI Instruction Prompt
                         VStack(alignment: .leading, spacing: 12) {
@@ -1019,7 +1019,7 @@ struct SettingsView: View {
 
     // Reset settings to defaults
     private func resetToDefaults() {
-        selectedModelId = "gemini-2.5-flash"
+        selectedModelId = CloudModelService.shared.loadCachedModelIds().first ?? "gemini-2.5-flash"
         apiEndpointUrlString = "https://generativelanguage.googleapis.com/v1beta/models/"
         draftsTag = "notebook"
         photoFolderName = "notebook" // Updated from savePhotosToAlbum

@@ -8,9 +8,18 @@ protocol ImageTextExtractor {
     func extractText(from processedImage: UIImage) async throws -> String
 }
 
+extension ImageTextExtractor {
+    func extractText(from imageData: Data) async throws -> String {
+        guard let image = UIImage(data: imageData) else {
+            throw PreprocessingError.invalidImageData
+        }
+        return try await extractText(from: image)
+    }
+}
+
 // Enum to identify the different service types
 enum TextExtractorType: String, CaseIterable, Identifiable {
-    case gemini = "Cloud"
+    case cloud = "Cloud"
     case vision = "Local"
 
     var id: String { self.rawValue }
