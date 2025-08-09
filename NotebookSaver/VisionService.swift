@@ -35,7 +35,7 @@ class VisionService: ImageTextExtractor {
         static let visionUsesLanguageCorrection = "visionUsesLanguageCorrection"
     }
 
-    // Reuse CIContext for efficiency, similar to GeminiService - Removed, context is in ImagePreprocessor
+    // Reuse CIContext for efficiency, similar to Cloud service - Removed, context is in ImagePreprocessor
     // private let ciContext = CIContext()
 
     func extractText(from imageData: Data) async throws -> String {

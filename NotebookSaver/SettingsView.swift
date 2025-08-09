@@ -110,7 +110,7 @@ struct SettingsView: View {
     @State private var availableModels: [String] = []
     @State private var isRefreshingModels = false
     @State private var modelsRefreshError: String?
-    @ObservedObject private var modelService = GeminiModelService.shared
+    @ObservedObject private var modelService = CloudModelService.shared
 
     // Focus state for text fields to enable tap-to-dismiss
     @FocusState private var isPromptFocused: Bool
@@ -119,8 +119,8 @@ struct SettingsView: View {
     @FocusState private var isPhotoFolderFocused: Bool
     @FocusState private var isApiEndpointFocused: Bool
 
-    // Check if Gemini service is properly configured
-    private var isGeminiConfigured: Bool {
+    // Check if Cloud service is properly configured
+    private var isCloudConfigured: Bool {
         return !apiKey.isEmpty && connectionStatus != .failure
     }
     
@@ -447,8 +447,8 @@ struct SettingsView: View {
                     .animation(.easeInOut(duration: 0.2), value: textExtractorService)
                     
                     // Show different content based on selected service
-                    if textExtractorService == TextExtractorType.gemini.rawValue {
-                        // Cloud (Gemini) settings
+                    if textExtractorService == TextExtractorType.cloud.rawValue {
+                        // Cloud settings
                         
                         // AI Instruction Prompt
                         VStack(alignment: .leading, spacing: 12) {

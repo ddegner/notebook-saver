@@ -1,4 +1,5 @@
 import SwiftUI
+import AppIntents
 
 @main
 struct NotebookSaverApp: App {
@@ -19,8 +20,8 @@ struct NotebookSaverApp: App {
                         appState.presentOnboarding()
                     }
                     
-                    // Defer Gemini warmup to avoid blocking UI presentation
-                    if hasCompletedOnboarding && textExtractorService == TextExtractorType.gemini.rawValue {
+                    // Defer Cloud warmup to avoid blocking UI presentation
+                    if hasCompletedOnboarding && textExtractorService == TextExtractorType.cloud.rawValue {
                         Task.detached(priority: .background) {
                             try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s
                             await GeminiService.warmUpConnection()
@@ -29,6 +30,10 @@ struct NotebookSaverApp: App {
                     
                     // Initialize models on first launch
                     initializeModelsIfNeeded()
+                }
+                .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { _ in }
+                .appShortcuts {
+                    NotebookSaverShortcuts()
                 }
                 .sheet(isPresented: $appState.showOnboarding) {
                     OnboardingView(isOnboarding: $appState.showOnboarding)
@@ -40,7 +45,7 @@ struct NotebookSaverApp: App {
     
     // Initialize models on first launch only
     private func initializeModelsIfNeeded() {
-        let modelService = GeminiModelService.shared
+        let modelService = CloudModelService.shared
         
         // Only fetch on first launch and if we have an API key
         if modelService.shouldFetchModels, let _ = KeychainService.loadAPIKey() {

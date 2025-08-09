@@ -10,7 +10,7 @@ protocol ImageTextExtractor {
 
 // Enum to identify the different service types
 enum TextExtractorType: String, CaseIterable, Identifiable {
-    case gemini = "Cloud"
+    case cloud = "Cloud"
     case vision = "Local"
 
     var id: String { self.rawValue }

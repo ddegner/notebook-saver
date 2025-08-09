@@ -11,7 +11,7 @@ class KeychainService {
     // Define service and account keys used to identify the keychain item.
     // Using Bundle Identifier guarantees uniqueness.
     private static let service = Bundle.main.bundleIdentifier ?? "com.example.notebooksaver.apikey"
-    private static let account = "geminiAPIKey"
+    private static let account = "cloudAPIKey"
 
     // MARK: - Save API Key
 
@@ -25,7 +25,7 @@ class KeychainService {
         _ = deleteAPIKey()
 
         // Attributes dictionary for the new keychain item.
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
@@ -34,6 +34,9 @@ class KeychainService {
             // This is a common security level for API keys.
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         ]
+        #if !targetEnvironment(macCatalyst)
+        query[kSecAttrAccessGroup as String] = "$(AppIdentifierPrefix)com.daviddegner.NotebookSaver"
+        #endif
 
         // Add the item to the keychain.
         let status = SecItemAdd(query as CFDictionary, nil)
@@ -51,13 +54,16 @@ class KeychainService {
 
     static func loadAPIKey() -> String? {
         // Query to find the keychain item.
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecReturnData as String: kCFBooleanTrue!,
             kSecMatchLimit as String: kSecMatchLimitOne // We only expect one item.
         ]
+        #if !targetEnvironment(macCatalyst)
+        query[kSecAttrAccessGroup as String] = "$(AppIdentifierPrefix)com.daviddegner.NotebookSaver"
+        #endif
 
         var dataTypeRef: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &dataTypeRef)
@@ -82,22 +88,24 @@ class KeychainService {
     // MARK: - Delete API Key (Helper)
 
     static func deleteAPIKey() -> Bool {
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
+        #if !targetEnvironment(macCatalyst)
+        query[kSecAttrAccessGroup as String] = "$(AppIdentifierPrefix)com.daviddegner.NotebookSaver"
+        #endif
 
         let status = SecItemDelete(query as CFDictionary)
 
         if status == errSecSuccess || status == errSecItemNotFound {
-            // Consider deletion successful if it succeeded or if the item wasn't found.
              if status == errSecSuccess {
-                 print("Keychain: Existing Gemini API Key deleted.") // Clarified which key
+                 print("Keychain: Existing Cloud API Key deleted.")
              }
             return true
         } else {
-            print("Keychain Error: Failed to delete Gemini API Key. Status code: \(status) - \(keychainErrorString(status))")
+            print("Keychain Error: Failed to delete Cloud API Key. Status code: \(status) - \(keychainErrorString(status))")
             return false
         }
     }

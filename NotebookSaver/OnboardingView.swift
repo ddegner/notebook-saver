@@ -65,7 +65,7 @@ struct OnboardingView: View {
                 Image(systemName: "key.fill")
                     .foregroundColor(.orange)
                     .font(.title2)
-                Text("Get Gemini API Key")
+                Text("Get Cloud API Key")
                     .font(.title2)
                     .fontWeight(.bold)
                     .foregroundColor(.primary)
@@ -261,8 +261,8 @@ struct OnboardingView: View {
             // Show confirmation
             showSaveConfirmation = true
             
-            // Set service to Gemini since we have an API key
-            textExtractorService = TextExtractorType.gemini.rawValue
+            // Set service to Cloud since we have an API key
+            textExtractorService = TextExtractorType.cloud.rawValue
             
             // Mark onboarding as completed
             hasCompletedOnboarding = true
