@@ -392,6 +392,16 @@ struct SettingsView: View {
                     Text("Save Photo")
                         .font(.headline)
                         .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+                        .overlay(
+                            Group {
+                                if ImageProcessingMode(rawValue: imageProcessingMode) == .appleIntelligence && !AppleIntelligenceSupport.isAvailable {
+                                    Text("(AI not available on this device)")
+                                        .font(.caption)
+                                        .foregroundColor(.red)
+                                        .padding(.leading, 8)
+                                }
+                            }, alignment: .trailing
+                        )
                     
                     Spacer()
                     

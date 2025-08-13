@@ -336,33 +336,10 @@ extension CameraView {
                 return imageToProcess
             }
         case .appleIntelligence:
-            // Placeholder: perform a subtle enhancement pass while keeping OCR fidelity
-            // We use a safe on-device Core Image pipeline to simulate enhancement.
-            // If Apple Intelligence APIs are available in the future, swap implementation here.
-            let enhanced = Self.enhanceForReadability(imageToProcess)
+            // Use Apple Intelligence if available, otherwise fallback enhancement
+            let enhanced = await AppleIntelligenceEnhancer.enhance(image: imageToProcess)
             return enhanced
         }
-    }
-
-    private static func enhanceForReadability(_ image: UIImage) -> UIImage {
-        guard let ciImage = CIImage(image: image) else { return image }
-        // Apply a mild exposure and contrast boost to help OCR
-        let exposure = CIFilter(name: "CIExposureAdjust")
-        exposure?.setValue(ciImage, forKey: kCIInputImageKey)
-        exposure?.setValue(0.25, forKey: kCIInputEVKey)
-
-        let contrastedInput = exposure?.outputImage ?? ciImage
-        let controls = CIFilter(name: "CIColorControls")
-        controls?.setValue(contrastedInput, forKey: kCIInputImageKey)
-        controls?.setValue(1.05, forKey: kCIInputContrastKey)
-        controls?.setValue(0.0, forKey: kCIInputSaturationKey) // desaturate slightly to emphasize text
-
-        let output = controls?.outputImage ?? contrastedInput
-        let context = CIContext()
-        if let cg = context.createCGImage(output, from: output.extent) {
-            return UIImage(cgImage: cg)
-        }
-        return image
     }
     
     private func extractTextFromProcessedImage(_ processedImage: UIImage) async throws -> String {
