@@ -71,6 +71,8 @@ struct SettingsView: View {
         static let visionUsesLanguageCorrection = "visionUsesLanguageCorrection"
         // AI thinking toggle
         static let thinkingEnabled = "thinkingEnabled"
+        // Image processing mode
+        static let imageProcessingMode = "imageProcessingMode"
     }
 
     // === Persisted Settings ===
@@ -90,6 +92,8 @@ struct SettingsView: View {
     @AppStorage(StorageKeys.thinkingEnabled) private var thinkingEnabled: Bool = false // Default to false (thinking off)
     // Text extraction service selection
     @AppStorage("textExtractorService") private var textExtractorService: String = AppDefaults.textExtractorService
+    // Image processing mode
+    @AppStorage(StorageKeys.imageProcessingMode) private var imageProcessingMode: String = ImageProcessingMode.none.rawValue
 
     // === State for API Key (using Keychain) ===
     @State private var apiKey: String = ""
@@ -366,6 +370,21 @@ struct SettingsView: View {
                             .foregroundColor(Color.orangeTabbyText)
                     }
                     .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+
+                // Image Processing Mode - horizontal layout
+                HStack(spacing: 16) {
+                    Text("Image Processing")
+                        .font(.headline)
+                        .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+                        .frame(width: 120, alignment: .leading)
+
+                    Picker("Image Processing", selection: $imageProcessingMode) {
+                        ForEach(ImageProcessingMode.allCases, id: \.rawValue) { mode in
+                            Text(mode.rawValue).tag(mode.rawValue)
+                        }
+                    }
+                    .pickerStyle(SegmentedPickerStyle())
                 }
 
                 // Save Photo Toggle - horizontal layout
@@ -1032,6 +1051,8 @@ struct SettingsView: View {
         thinkingEnabled = false
         // Reset prompt to default based on thinking state
         updatePromptForThinking(enabled: thinkingEnabled)
+        // Reset image processing mode
+        imageProcessingMode = ImageProcessingMode.none.rawValue
         // Note: API key is not reset as it's sensitive information
     }
 

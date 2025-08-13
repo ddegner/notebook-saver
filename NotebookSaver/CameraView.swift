@@ -319,9 +319,50 @@ extension CameraView {
             throw CameraManager.CameraError.processingFailed("Could not create UIImage from captured data.")
         }
 
-        // For now, return the original image without any processing
-        // This could be enhanced with resizing/optimization if needed for the UI
-        return imageToProcess
+        let modeRaw = UserDefaults.standard.string(forKey: "imageProcessingMode") ?? ImageProcessingMode.none.rawValue
+        let mode = ImageProcessingMode(rawValue: modeRaw) ?? .none
+
+        switch mode {
+        case .none:
+            return imageToProcess
+        case .optimized:
+            // Use existing Core Image based resizing for UI responsiveness
+            let processor = ImageProcessor()
+            let maxDimension: CGFloat = 1500
+            do {
+                return try processor.resizeImage(imageToProcess, maxDimension: maxDimension)
+            } catch {
+                print("Optimized resize failed, returning original image: \(error.localizedDescription)")
+                return imageToProcess
+            }
+        case .appleIntelligence:
+            // Placeholder: perform a subtle enhancement pass while keeping OCR fidelity
+            // We use a safe on-device Core Image pipeline to simulate enhancement.
+            // If Apple Intelligence APIs are available in the future, swap implementation here.
+            let enhanced = Self.enhanceForReadability(imageToProcess)
+            return enhanced
+        }
+    }
+
+    private static func enhanceForReadability(_ image: UIImage) -> UIImage {
+        guard let ciImage = CIImage(image: image) else { return image }
+        // Apply a mild exposure and contrast boost to help OCR
+        let exposure = CIFilter(name: "CIExposureAdjust")
+        exposure?.setValue(ciImage, forKey: kCIInputImageKey)
+        exposure?.setValue(0.25, forKey: kCIInputEVKey)
+
+        let contrastedInput = exposure?.outputImage ?? ciImage
+        let controls = CIFilter(name: "CIColorControls")
+        controls?.setValue(contrastedInput, forKey: kCIInputImageKey)
+        controls?.setValue(1.05, forKey: kCIInputContrastKey)
+        controls?.setValue(0.0, forKey: kCIInputSaturationKey) // desaturate slightly to emphasize text
+
+        let output = controls?.outputImage ?? contrastedInput
+        let context = CIContext()
+        if let cg = context.createCGImage(output, from: output.extent) {
+            return UIImage(cgImage: cg)
+        }
+        return image
     }
     
     private func extractTextFromProcessedImage(_ processedImage: UIImage) async throws -> String {
