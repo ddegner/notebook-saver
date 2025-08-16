@@ -274,6 +274,18 @@ extension CameraView {
     }
     
     private func handlePhotoCapture(result: Result<Data, CameraManager.CameraError>) async {
+        // Ensure the pipeline can finish even if the app goes to background
+        var bgTask: UIBackgroundTaskIdentifier = .invalid
+        await MainActor.run {
+            bgTask = UIApplication.shared.beginBackgroundTask(withName: "ProcessCapture") {
+                UIApplication.shared.endBackgroundTask(bgTask)
+            }
+        }
+        defer {
+            if bgTask != .invalid {
+                UIApplication.shared.endBackgroundTask(bgTask)
+            }
+        }
         do {
             let capturedImageData = try result.get()
             print("Photo captured successfully, size: \(capturedImageData.count) bytes")

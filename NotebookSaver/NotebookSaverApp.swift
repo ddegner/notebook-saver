@@ -1,7 +1,9 @@
 import SwiftUI
+import UIKit
 
 @main
 struct NotebookSaverApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
     @AppStorage("textExtractorService") private var textExtractorService: String = AppDefaults.textExtractorService
     @StateObject private var appState = AppStateManager()
@@ -15,6 +17,9 @@ struct NotebookSaverApp: App {
                 .environmentObject(appState)
                 .environmentObject(preemptiveCameraManager)
                 .onAppear {
+                    // Configure notifications
+                    NotificationManager.shared.configure()
+                    
                     if !hasCompletedOnboarding {
                         appState.presentOnboarding()
                     }
