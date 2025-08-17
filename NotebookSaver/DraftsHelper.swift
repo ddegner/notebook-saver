@@ -1,5 +1,6 @@
 import UIKit
 import SwiftUI
+import UserNotifications
 
 // MARK: - Custom Drafts Errors
 enum DraftsError: LocalizedError {
@@ -23,9 +24,11 @@ class DraftsHelper {
     private static let scheme = "drafts"
     private static let createAction = "create"
     private static let pendingDraftsKey = "pendingDrafts"
+    private static let maxPreviewLength = 120
     
     // MARK: - Pending Draft Structure
     private struct PendingDraft: Codable {
+        let id: String
         let text: String
         let tag: String?
         let timestamp: Date
@@ -77,7 +80,9 @@ class DraftsHelper {
         
         if appState != .active {
             print("DraftsHelper: App is not active (state: \(appState)), storing draft for later creation")
-            storePendingDraft(text: text, tag: tag)
+            let pendingId = storePendingDraftReturningId(text: text, tag: tag)
+            let preview = makePreview(from: text)
+            NotificationManager.shared.scheduleDraftReadyNotification(pendingDraftId: pendingId, previewText: preview)
             return true // Return true since we've stored it successfully
         }
         
@@ -177,21 +182,26 @@ class DraftsHelper {
     
     /// Store a draft to be created when the app returns to foreground
     private static func storePendingDraft(text: String, tag: String?) {
-        let pendingDraft = PendingDraft(text: text, tag: tag, timestamp: Date())
-        
+        _ = storePendingDraftReturningId(text: text, tag: tag)
+    }
+
+    /// Store a draft and return its unique id
+    private static func storePendingDraftReturningId(text: String, tag: String?) -> String {
+        let newId = UUID().uuidString
+        let pendingDraft = PendingDraft(id: newId, text: text, tag: tag, timestamp: Date())
         var pendingDrafts = loadPendingDrafts()
         pendingDrafts.append(pendingDraft)
-        
         do {
             let data = try JSONEncoder().encode(pendingDrafts)
             UserDefaults.standard.set(data, forKey: pendingDraftsKey)
-            UserDefaults.standard.synchronize() // Force immediate save
-            print("DraftsHelper: Stored pending draft with \(text.count) characters, total pending: \(pendingDrafts.count)")
+            UserDefaults.standard.synchronize()
+            print("DraftsHelper: Stored pending draft (id=\(newId)) with \(text.count) characters, total pending: \(pendingDrafts.count)")
         } catch {
             print("DraftsHelper: Failed to store pending draft: \(error)")
         }
+        return newId
     }
-    
+
     /// Load all pending drafts from storage
     private static func loadPendingDrafts() -> [PendingDraft] {
         guard let data = UserDefaults.standard.data(forKey: pendingDraftsKey) else {
@@ -206,6 +216,20 @@ class DraftsHelper {
         }
     }
     
+    /// Remove a pending draft by id
+    private static func removePendingDraft(by id: String) {
+        var pending = loadPendingDrafts()
+        let originalCount = pending.count
+        pending.removeAll { $0.id == id }
+        do {
+            let data = try JSONEncoder().encode(pending)
+            UserDefaults.standard.set(data, forKey: pendingDraftsKey)
+            print("DraftsHelper: Removed pending draft id=\(id). Count: \(originalCount) -> \(pending.count)")
+        } catch {
+            print("DraftsHelper: Failed to remove pending draft id=\(id): \(error)")
+        }
+    }
+
     /// Create all pending drafts (call when app returns to foreground)
     @MainActor
     static func createPendingDrafts() async {
@@ -245,6 +269,24 @@ class DraftsHelper {
         print("DraftsHelper: Cleared all pending drafts")
     }
     
+    /// Create a specific pending draft by id (triggered by notification tap)
+    @MainActor
+    static func createPendingDraft(by id: String) async {
+        let drafts = loadPendingDrafts()
+        guard let draft = drafts.first(where: { $0.id == id }) else {
+            print("DraftsHelper: No pending draft found with id=\(id)")
+            return
+        }
+        do {
+            try checkDraftsInstalled()
+            try createDraft(with: draft.text, tag: draft.tag)
+            removePendingDraft(by: id)
+            print("DraftsHelper: Created and removed pending draft id=\(id)")
+        } catch {
+            print("DraftsHelper: Failed to create pending draft by id=\(id): \(error)")
+        }
+    }
+
     /// Get count of pending drafts
     static func pendingDraftCount() -> Int {
         return loadPendingDrafts().count
@@ -253,5 +295,12 @@ class DraftsHelper {
     /// Debug method to manually add a test pending draft
     static func addTestPendingDraft() {
         storePendingDraft(text: "Test draft created at \(Date())", tag: "test")
+    }
+
+    private static func makePreview(from text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.count <= maxPreviewLength { return trimmed }
+        let idx = trimmed.index(trimmed.startIndex, offsetBy: maxPreviewLength)
+        return String(trimmed[..<idx]) + "…"
     }
 }
