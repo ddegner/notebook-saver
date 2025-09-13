@@ -331,9 +331,27 @@ extension CameraView {
             throw CameraManager.CameraError.processingFailed("Could not create UIImage from captured data.")
         }
 
-        // For now, return the original image without any processing
-        // This could be enhanced with resizing/optimization if needed for the UI
-        return imageToProcess
+        let modeRaw = UserDefaults.standard.string(forKey: "imageProcessingMode") ?? ImageProcessingMode.none.rawValue
+        let mode = ImageProcessingMode(rawValue: modeRaw) ?? .none
+
+        switch mode {
+        case .none:
+            return imageToProcess
+        case .optimized:
+            // Use existing Core Image based resizing for UI responsiveness
+            let processor = ImageProcessor()
+            let maxDimension: CGFloat = 1500
+            do {
+                return try processor.resizeImage(imageToProcess, maxDimension: maxDimension)
+            } catch {
+                print("Optimized resize failed, returning original image: \(error.localizedDescription)")
+                return imageToProcess
+            }
+        case .appleIntelligence:
+            // Use Apple Intelligence if available, otherwise fallback enhancement
+            let enhanced = await AppleIntelligenceEnhancer.enhance(image: imageToProcess)
+            return enhanced
+        }
     }
     
     private func extractTextFromProcessedImage(_ processedImage: UIImage) async throws -> String {
