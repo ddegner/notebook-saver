@@ -4,23 +4,26 @@ import AVFoundation
 struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
     var isSessionReady: Bool = false // Track if camera session is running
+    var onPinchZoom: ((CGFloat) -> Void)? = nil // Callback for zoom gestures
 
     func makeUIView(context: Context) -> PreviewView {
         let view = PreviewView(session: session)
         view.isSessionReady = isSessionReady
+        view.onPinchZoom = onPinchZoom
         return view
     }
 
     func updateUIView(_ uiView: PreviewView, context: Context) {
         // Update session ready state
         uiView.isSessionReady = isSessionReady
+        uiView.onPinchZoom = onPinchZoom
     }
 }
 
 // Custom UIView subclass that handles the preview layer setup and layout
 class PreviewView: UIView {
     private var previewLayer: AVCaptureVideoPreviewLayer
-    private let placeholderLayer = CAGradientLayer()
+    private var pinchGesture: UIPinchGestureRecognizer?
     
     var isSessionReady: Bool = false {
         didSet {
@@ -28,6 +31,12 @@ class PreviewView: UIView {
             if oldValue != isSessionReady {
                 updateLayerVisibility(animated: true)
             }
+        }
+    }
+    
+    var onPinchZoom: ((CGFloat) -> Void)? {
+        didSet {
+            setupPinchGesture()
         }
     }
     
@@ -50,43 +59,39 @@ class PreviewView: UIView {
         
         // Setup camera preview layer
         previewLayer.videoGravity = .resizeAspect  // Fit the view (shows full frame without cropping)
-        previewLayer.opacity = 0  // Start invisible until camera is ready
+        previewLayer.opacity = 1.0  // Always show camera preview
         layer.addSublayer(previewLayer)
         
-        // Setup placeholder gradient (subtle dark gradient that looks like camera UI)
-        placeholderLayer.colors = [
-            UIColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0).cgColor,
-            UIColor.black.cgColor
-        ]
-        placeholderLayer.locations = [0.0, 1.0]
-        placeholderLayer.startPoint = CGPoint(x: 0.5, y: 0.0)
-        placeholderLayer.endPoint = CGPoint(x: 0.5, y: 1.0)
-        layer.addSublayer(placeholderLayer)
+        // Setup pinch gesture
+        setupPinchGesture()
+    }
+    
+    private func setupPinchGesture() {
+        // Remove existing gesture if any
+        if let existing = pinchGesture {
+            removeGestureRecognizer(existing)
+        }
         
-        // Initial visibility state
-        updateLayerVisibility(animated: false)
+        // Add new gesture if callback is set
+        if onPinchZoom != nil {
+            let gesture = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
+            addGestureRecognizer(gesture)
+            pinchGesture = gesture
+        }
+    }
+    
+    @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+        guard let onPinchZoom = onPinchZoom else { return }
+        
+        if gesture.state == .changed {
+            onPinchZoom(gesture.scale)
+            gesture.scale = 1.0 // Reset scale for next change
+        }
     }
     
     private func updateLayerVisibility(animated: Bool) {
-        if animated {
-            let duration: CFTimeInterval = 0.3
-            
-            let previewAnimation = CABasicAnimation(keyPath: "opacity")
-            previewAnimation.fromValue = previewLayer.opacity
-            previewAnimation.toValue = isSessionReady ? 1.0 : 0.0
-            previewAnimation.duration = duration
-            previewLayer.add(previewAnimation, forKey: "opacity")
-            
-            let placeholderAnimation = CABasicAnimation(keyPath: "opacity")
-            placeholderAnimation.fromValue = placeholderLayer.opacity
-            placeholderAnimation.toValue = isSessionReady ? 0.0 : 1.0
-            placeholderAnimation.duration = duration
-            placeholderLayer.add(placeholderAnimation, forKey: "opacity")
-        }
-        
-        // Update final values
-        previewLayer.opacity = isSessionReady ? 1.0 : 0.0
-        placeholderLayer.opacity = isSessionReady ? 0.0 : 1.0
+        // Placeholder removed – always show the preview layer
+        previewLayer.opacity = 1.0
     }
     
     override func layoutSubviews() {
@@ -94,7 +99,6 @@ class PreviewView: UIView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         previewLayer.frame = bounds
-        placeholderLayer.frame = bounds
         CATransaction.commit()
     }
 }

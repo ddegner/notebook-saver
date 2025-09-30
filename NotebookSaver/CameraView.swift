@@ -94,10 +94,13 @@ struct CameraPreviewArea: View {
     let currentQuote: (quote: String, author: String)?
     
     var body: some View {
-        ZStack {
+            ZStack {
             CameraPreview(
                 session: cameraManager.session,
-                isSessionReady: cameraManager.isSetupComplete && cameraManager.isAuthorized
+                isSessionReady: cameraManager.isSetupComplete && cameraManager.isAuthorized,
+                onPinchZoom: { scale in
+                    cameraManager.updateZoom(scale: scale)
+                }
             )
             .frame(width: screenWidth, height: cameraHeight)
             .clipped() // Ensure camera preview doesn't overflow
@@ -274,18 +277,6 @@ extension CameraView {
     }
     
     private func handlePhotoCapture(result: Result<Data, CameraManager.CameraError>) async {
-        // Ensure the pipeline can finish even if the app goes to background
-        var bgTask: UIBackgroundTaskIdentifier = .invalid
-        await MainActor.run {
-            bgTask = UIApplication.shared.beginBackgroundTask(withName: "ProcessCapture") {
-                UIApplication.shared.endBackgroundTask(bgTask)
-            }
-        }
-        defer {
-            if bgTask != .invalid {
-                UIApplication.shared.endBackgroundTask(bgTask)
-            }
-        }
         do {
             let capturedImageData = try result.get()
             print("Photo captured successfully, size: \(capturedImageData.count) bytes")

@@ -16,6 +16,12 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
     @Published var isFlashAvailable = false
     // ---------------------
 
+    // --- Zoom Control ---
+    @Published var currentZoomFactor: CGFloat = 1.0
+    @Published var minZoomFactor: CGFloat = 1.0
+    @Published var maxZoomFactor: CGFloat = 10.0
+    // ---------------------
+
     // --- Photo Saving ---
     @Published var lastSavedPhotoLocalIdentifier: String? // For linking to saved photos
     // -------------------
@@ -237,10 +243,24 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
 
         // Configure device settings and check flash availability
         let hasFlash = device.hasFlash
+        
+        // Configure zoom limits
+        let deviceMinZoom = device.minAvailableVideoZoomFactor
+        let deviceMaxZoom = min(device.maxAvailableVideoZoomFactor, 10.0) // Cap at 10x for usability
+        
         DispatchQueue.main.async {
             self.isFlashAvailable = hasFlash
             if !hasFlash { self.flashMode = .off }
+            
+            // Set zoom limits
+            self.minZoomFactor = deviceMinZoom
+            self.maxZoomFactor = deviceMaxZoom
         }
+        
+        // Set initial zoom from user defaults
+        let defaultZoom = UserDefaults.standard.double(forKey: "defaultZoomFactor")
+        let initialZoom = defaultZoom > 0 ? defaultZoom : 2.0
+        setZoom(factor: CGFloat(initialZoom), on: device)
 
         // Output setup - streamlined
         guard session.canAddOutput(photoOutput) else {
@@ -545,6 +565,46 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
                     completion(cameraGranted, photoGranted)
                 }
             }
+        }
+    }
+    
+    // MARK: - Zoom Control
+    
+    /// Set zoom factor on the camera device
+    private func setZoom(factor: CGFloat, on device: AVCaptureDevice) {
+        do {
+            try device.lockForConfiguration()
+            let clampedZoom = min(max(factor, device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
+            device.videoZoomFactor = clampedZoom
+            device.unlockForConfiguration()
+            
+            DispatchQueue.main.async {
+                self.currentZoomFactor = clampedZoom
+            }
+            print("CameraManager: Set zoom to \(clampedZoom)x")
+        } catch {
+            print("CameraManager: Error setting zoom: \(error.localizedDescription)")
+        }
+    }
+    
+    /// Set zoom factor - public API for external callers
+    func setZoomFactor(_ factor: CGFloat) {
+        sessionQueue.async { [weak self] in
+            guard let self = self, let device = self.videoDevice else {
+                print("CameraManager: Cannot set zoom - no video device")
+                return
+            }
+            self.setZoom(factor: factor, on: device)
+        }
+    }
+    
+    /// Update zoom based on pinch gesture scale
+    func updateZoom(scale: CGFloat) {
+        sessionQueue.async { [weak self] in
+            guard let self = self, let device = self.videoDevice else { return }
+            
+            let newZoomFactor = self.currentZoomFactor * scale
+            self.setZoom(factor: newZoomFactor, on: device)
         }
     }
 }
