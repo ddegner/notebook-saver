@@ -3,7 +3,6 @@ import AVFoundation // For AudioServicesPlaySystemSound
 
 struct ContentView: View {
     @State private var isShowingSettings = false
-    @State private var cameraOffset: CGFloat = 0
     @State private var dragOffset: CGFloat = 0
     
     var body: some View {
@@ -18,7 +17,7 @@ struct ContentView: View {
                 // Camera View - slides up and down
                 CameraView(isShowingSettings: $isShowingSettings)
                     .frame(width: geometry.size.width, height: geometry.size.height)
-                    .offset(y: cameraOffset + dragOffset)
+                    .offset(y: (isShowingSettings ? -(geometry.size.height - 80) : 0) + dragOffset)
                     .shadow(color: .black.opacity(0.30), radius: 12, x: 0, y: 6)
             }
             .gesture(
@@ -60,35 +59,22 @@ struct ContentView: View {
                             shouldToggle = false
                         }
 
-                        if shouldToggle {
-                            isShowingSettings.toggle()
-                        }
-
-                        // Always snap back to the discrete position
-                        withAnimation(.easeInOut(duration: 0.1)) {
+                        // Animate the state changes together
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            if shouldToggle {
+                                isShowingSettings.toggle()
+                            }
+                            // Always snap back to the discrete position
                             dragOffset = 0
                         }
                     }
             )
-            .onAppear {
-                // Initialize camera offset - camera starts at full screen (0), slides up to show settings
-                cameraOffset = isShowingSettings ? -geometry.size.height + 80 : 0
-            }
-            .onChange(of: isShowingSettings) { _, newValue in
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    // When showing settings, slide camera up so only the chevron (bottom 80pts) is visible
-                    cameraOffset = newValue ? -geometry.size.height + 80 : 0
-                    // Reset dragOffset as part of the same animation
-                    dragOffset = 0
-                }
-                
-                // Faster haptic feedback and sound - reduced delay for quicker response
+            .animation(.easeInOut(duration: 0.2), value: isShowingSettings)
+            .onChange(of: isShowingSettings) { _, _ in
+                // Haptic feedback and sound when animation completes
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                    // Lighter haptic feedback when camera stops moving
                     let generator = UIImpactFeedbackGenerator(style: .light)
                     generator.impactOccurred(intensity: 0.7)
-                    
-                    // Play softer click sound when camera reaches its final position
                     playPositionClickSound()
                 }
             }

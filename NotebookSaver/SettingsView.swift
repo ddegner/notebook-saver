@@ -330,6 +330,7 @@ struct SettingsView: View {
                     Spacer()
 
                     Picker("Default Zoom", selection: $defaultZoomFactor) {
+                        Text("0.5×").tag(0.5)
                         Text("1×").tag(1.0)
                         Text("1.5×").tag(1.5)
                         Text("2×").tag(2.0)

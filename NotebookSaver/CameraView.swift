@@ -123,7 +123,12 @@ struct LoadingOverlay: View {
     let currentQuote: (quote: String, author: String)?
     
     var body: some View {
-        Color.black.opacity(0.7)
+        // Liquid Glass effect for loading overlay
+        ZStack {
+            Color.black.opacity(0.4)
+            Rectangle()
+                .fill(.thinMaterial)
+        }
         VStack(spacing: 20) {
             if let quote = currentQuote {
                 VStack(spacing: 16) {
@@ -191,18 +196,9 @@ struct SettingsToggleButton: View {
     
     var body: some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.3)) {
-                isShowingSettings.toggle()
-            }
-            
-            // Faster haptic feedback and sound - reduced delay to match quicker animation
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                let impactGenerator = UIImpactFeedbackGenerator(style: .light)
-                impactGenerator.impactOccurred(intensity: 0.7)
-                
-                // Play softer click sound when camera reaches its final position
-                AudioServicesPlaySystemSound(1104) // Softer click sound
-            }
+            // Don't wrap in withAnimation here - let ContentView handle the animation
+            // to keep everything synchronized
+            isShowingSettings.toggle()
         } label: {
             Image(systemName: "chevron.up")
                 .font(.system(size: 18, weight: .medium))
