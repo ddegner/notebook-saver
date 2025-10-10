@@ -41,6 +41,7 @@
 		7F3764DE2DC566A20038F019 /* Cat NoteWidgetsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Cat NoteWidgetsExtension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7F3764E02DC566A20038F019 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		7F3764E22DC566A20038F019 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		7F682F1A2E99803800C56A2D /* Cat Scribe.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Cat Scribe.entitlements"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -102,6 +103,9 @@
 		7F3764A12DC45A9C0038F019 = {
 			isa = PBXGroup;
 			children = (
+				7F682F1A2E99803800C56A2D /* Cat Scribe.entitlements */,
+				7F3764E02DC566A20038F019 /* WidgetKit.framework */,
+				7F3764E22DC566A20038F019 /* SwiftUI.framework */,
 				7F3764AC2DC45A9C0038F019 /* NotebookSaver */,
 				7F3764E42DC566A20038F019 /* NotebookSaverWidgets */,
 				7F3764DF2DC566A20038F019 /* Frameworks */,
@@ -121,8 +125,6 @@
 		7F3764DF2DC566A20038F019 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				7F3764E02DC566A20038F019 /* WidgetKit.framework */,
-				7F3764E22DC566A20038F019 /* SwiftUI.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -183,7 +185,7 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1630;
+				LastSwiftUpdateCheck = 2600;
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
 					7F3764A92DC45A9C0038F019 = {
@@ -390,6 +392,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = "Cat Scribe.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = Q26G342EEL;
@@ -433,6 +436,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = "Cat Scribe.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = Q26G342EEL;

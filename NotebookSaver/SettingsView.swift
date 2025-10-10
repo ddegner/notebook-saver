@@ -51,6 +51,7 @@ extension Color {
 
 struct SettingsView: View {
     @EnvironmentObject var appState: AppStateManager
+    @EnvironmentObject var cameraManager: CameraManager
     // Tab selection state
     @State private var selectedTab: SettingsTab = .ai
     
@@ -330,7 +331,6 @@ struct SettingsView: View {
                     Spacer()
 
                     Picker("Default Zoom", selection: $defaultZoomFactor) {
-                        Text("0.5×").tag(0.5)
                         Text("1×").tag(1.0)
                         Text("1.5×").tag(1.5)
                         Text("2×").tag(2.0)
@@ -340,6 +340,9 @@ struct SettingsView: View {
                     .pickerStyle(.menu)
                     .tint(Color.orangeTabbyAccent)
                     .labelsHidden()
+                    .onChange(of: defaultZoomFactor) { _, newValue in
+                        cameraManager.setZoomFactor(CGFloat(newValue))
+                    }
                 }
                 // Add tag to draft toggle - horizontal layout
                 HStack(spacing: 16) {
@@ -1131,5 +1134,7 @@ struct SettingsView: View {
 
 #Preview {
     SettingsView()
+        .environmentObject(AppStateManager())
+        .environmentObject(CameraManager(setupOnInit: false))
 }
 

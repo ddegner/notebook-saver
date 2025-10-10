@@ -22,7 +22,7 @@ struct CameraView: View {
             let screenWidth = geometry.size.width
             let screenHeight = geometry.size.height
             let cameraHeight = screenWidth * (4.0/3.0)
-            let statusBarHeight = max(safeAreaInsets.top, 50)
+            let statusBarHeight = max(safeAreaInsets.top + 10, 60)
             let bottomSafeArea = safeAreaInsets.bottom
             
             // Calculate available height for controls (everything below camera)
@@ -79,7 +79,7 @@ struct StatusBarView: View {
     var body: some View {
         Rectangle()
             .fill(Color.black)
-            .frame(height: max(safeAreaInsets.top, 50))
+            .frame(height: max(safeAreaInsets.top + 10, 60))
             .frame(maxWidth: .infinity)
             .edgesIgnoringSafeArea(.top)
     }

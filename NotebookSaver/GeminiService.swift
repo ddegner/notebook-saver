@@ -179,7 +179,8 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
     private static let defaultApiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/"
     private let defaultDraftsTag = "notebook"
 
-    private let highMaxImageDimension: CGFloat = 1500.0 // Set to 1500px as requested
+    private let targetImageWidth: CGFloat = 1365.0 // Target width for Gemini uploads
+    private let targetImageHeight: CGFloat = 1536.0 // Target height for Gemini uploads
     
     // Retry configuration
     private let maxRetryAttempts = 2 // Reduced from 3 for faster failure detection
@@ -358,17 +359,16 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
             prompt = basePrompt
         }
         // Quality setting is not currently user-configurable, use a default
-        let heicQuality: CGFloat = 0.5 // Set to 0.5 as requested
+        let heicQuality: CGFloat = 0.6 // Set to 0.6 as requested
 
         // 1. Prepare Image using the new ImageProcessor workflow
         let preparedImageData: Data
         do {
-            // Use the high resolution max dimension
-            let maxDimension = highMaxImageDimension
-            print("GeminiService: Using max image dimension: \(maxDimension)")
+            // Use specific target dimensions
+            print("GeminiService: Using target image dimensions: \(targetImageWidth)x\(targetImageHeight)")
 
             // Resize the UIImage using the Core Image based method
-            let resizedUIImage = try imageProcessor.resizeImage(originalUIImage, maxDimension: maxDimension)
+            let resizedUIImage = try imageProcessor.resizeImageToDimensions(originalUIImage, targetWidth: targetImageWidth, targetHeight: targetImageHeight)
 
             // Encode the resized UIImage to HEIC
             preparedImageData = try imageProcessor.encodeToHEICData(resizedUIImage, compressionQuality: heicQuality)
