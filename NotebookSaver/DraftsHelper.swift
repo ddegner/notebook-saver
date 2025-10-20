@@ -1,5 +1,6 @@
 import UIKit
 import SwiftUI
+import Foundation
 
 // MARK: - Custom Drafts Errors
 enum DraftsError: LocalizedError {
@@ -62,9 +63,16 @@ class DraftsHelper {
     /// - Parameters:
     ///   - text: The text content to create in Drafts
     ///   - tag: Optional tag(s) to apply to the draft
+    ///   - sessionId: Optional performance logging session ID
     /// - Returns: Boolean indicating success
     /// - Throws: DraftsError if Drafts isn't installed or URL creation fails
-    static func createDraftAsync(with text: String, tag: String? = nil) async throws -> Bool {
+    static func createDraftAsync(with text: String, tag: String? = nil, sessionId: UUID? = nil) async throws -> Bool {
+        // Direct call to internal implementation (performance logging handled at higher level)
+        return try await _createDraftAsyncInternal(with: text, tag: tag)
+    }
+    
+    /// Internal implementation of createDraftAsync without performance logging
+    private static func _createDraftAsyncInternal(with text: String, tag: String? = nil) async throws -> Bool {
         // Check if Drafts is installed
         try await checkDraftsInstalledAsync()
         
@@ -225,16 +233,25 @@ class DraftsHelper {
         
         print("DraftsHelper: Creating \(pendingDrafts.count) pending drafts")
         
+        // Start a performance logging session for pending drafts creation
+        let sessionId = PerformanceLogger.shared.startSession()
+        
         for draft in pendingDrafts {
             do {
                 try await Task.sleep(nanoseconds: 500_000_000) // 0.5 second delay between drafts
-                try createDraft(with: draft.text, tag: draft.tag)
+                try await PerformanceLogger.shared.measureVoidOperation(
+                    "Create Pending Draft",
+                    sessionId: sessionId
+                ) {
+                    try createDraft(with: draft.text, tag: draft.tag)
+                }
                 print("DraftsHelper: Successfully created pending draft from \(draft.timestamp)")
             } catch {
                 print("DraftsHelper: Failed to create pending draft: \(error)")
                 // If Drafts is not installed, we should stop trying and keep the pending drafts
                 if error is DraftsError {
                     print("DraftsHelper: Drafts app issue detected, keeping remaining pending drafts")
+                    PerformanceLogger.shared.cancelSession(sessionId)
                     return
                 }
             }
@@ -242,6 +259,7 @@ class DraftsHelper {
         
         // Clear pending drafts after creation
         UserDefaults.standard.removeObject(forKey: pendingDraftsKey)
+        PerformanceLogger.shared.endSession(sessionId)
         print("DraftsHelper: Cleared all pending drafts")
     }
     

@@ -275,7 +275,7 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
 
     // MARK: - Public API
 
-    func extractText(from imageData: Data) async throws -> String {
+    func extractText(from imageData: Data, sessionId: UUID? = nil) async throws -> String {
         var retryCount = 0
         
         // Function to implement exponential backoff
@@ -286,7 +286,7 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
         // Keep retrying until max attempts reached
         while true {
             do {
-                return try await attemptExtractText(from: imageData)
+                return try await attemptExtractText(from: imageData, sessionId: sessionId)
             } catch APIError.serviceUnavailable where retryCount < maxRetryAttempts {
                 retryCount += 1
                 let delay = calculateBackoff(attempt: retryCount - 1)
@@ -319,16 +319,16 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
         }
     }
     
-    private func attemptExtractText(from imageData: Data) async throws -> String {
+    private func attemptExtractText(from imageData: Data, sessionId: UUID? = nil) async throws -> String {
         // Create UIImage from data and delegate to optimized method
         guard let originalUIImage = UIImage(data: imageData) else {
             throw PreprocessingError.invalidImageData
         }
-        return try await attemptExtractText(from: originalUIImage)
+        return try await attemptExtractText(from: originalUIImage, sessionId: sessionId)
     }
     
     // MARK: - Optimized method for pre-processed images
-    private func attemptExtractText(from originalUIImage: UIImage) async throws -> String {
+    private func attemptExtractText(from originalUIImage: UIImage, sessionId: UUID? = nil) async throws -> String {
         let settings = GeminiService.getSettings()
 
         guard let apiKey = settings.apiKey, !apiKey.isEmpty else {
@@ -342,6 +342,12 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
         }
         let basePrompt = settings.prompt
         let thinkingEnabled = settings.thinkingEnabled
+        
+        // Create model info for performance logging (will be updated with image metadata later)
+        let modelInfoConfiguration = [
+            "thinking_enabled": String(thinkingEnabled),
+            "endpoint": apiBaseUrl.absoluteString
+        ]
         
         // Add thinking directives to the prompt if thinking is enabled
         let prompt: String
@@ -361,14 +367,20 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
         // Quality setting is not currently user-configurable, use a default
         let heicQuality: CGFloat = 0.6 // Set to 0.6 as requested
 
+        // Capture original image metadata
+        let originalSize = originalUIImage.size
+        let originalImageData = originalUIImage.jpegData(compressionQuality: 1.0) ?? Data()
+        let originalFileSizeBytes = originalImageData.count
+
         // 1. Prepare Image using the new ImageProcessor workflow
         let preparedImageData: Data
+        let resizedUIImage: UIImage
         do {
             // Use specific target dimensions
             print("GeminiService: Using target image dimensions: \(targetImageWidth)x\(targetImageHeight)")
 
             // Resize the UIImage using the Core Image based method
-            let resizedUIImage = try imageProcessor.resizeImageToDimensions(originalUIImage, targetWidth: targetImageWidth, targetHeight: targetImageHeight)
+            resizedUIImage = try imageProcessor.resizeImageToDimensions(originalUIImage, targetWidth: targetImageWidth, targetHeight: targetImageHeight)
 
             // Encode the resized UIImage to HEIC
             preparedImageData = try imageProcessor.encodeToHEICData(resizedUIImage, compressionQuality: heicQuality)
@@ -380,6 +392,18 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
             // Catch other potential errors during image processing
             throw APIError.preprocessingFailed(reason: "An unexpected error occurred during image preparation: \(error.localizedDescription)")
         }
+        
+        // Create image metadata for performance logging
+        let imageMetadata = ImageMetadata(
+            originalWidth: originalSize.width,
+            originalHeight: originalSize.height,
+            processedWidth: resizedUIImage.size.width,
+            processedHeight: resizedUIImage.size.height,
+            originalFileSizeBytes: originalFileSizeBytes,
+            processedFileSizeBytes: preparedImageData.count,
+            compressionQuality: heicQuality,
+            imageFormat: "HEIC"
+        )
         let base64ImageString = preparedImageData.base64EncodedString()
 
         // 2. Construct Request
@@ -416,16 +440,48 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
             print("GeminiService: Target model: \(model)")
             print("GeminiService: Image size: \(preparedImageData.count) bytes")
             
-            let startTime = Date()
-            let (data, response) = try await URLSession.shared.data(for: request)
-            let requestDuration = Date().timeIntervalSince(startTime)
+            let (data, response): (Data, URLResponse)
+            let requestDuration: TimeInterval
+            
+            if let sessionId = sessionId {
+                // Create complete model info with image metadata
+                let completeModelInfo = ModelInfo(
+                    serviceName: "Gemini",
+                    modelName: model,
+                    configuration: modelInfoConfiguration,
+                    imageMetadata: imageMetadata
+                )
+                
+                // Use performance logger for timing
+                let result = try await PerformanceLogger.shared.measureOperation(
+                    "Gemini API Request (\(model))",
+                    sessionId: sessionId,
+                    modelInfo: completeModelInfo
+                ) {
+                    try await URLSession.shared.data(for: request)
+                }
+                data = result.0
+                response = result.1
+                requestDuration = 0 // Duration already logged by performance logger
+            } else {
+                // Fallback to manual timing when no session provided
+                let startTime = Date()
+                let result = try await URLSession.shared.data(for: request)
+                data = result.0
+                response = result.1
+                requestDuration = Date().timeIntervalSince(startTime)
+            }
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 print("GeminiService: Invalid response type received")
                 throw APIError.networkError(URLError(.badServerResponse))
             }
 
-            print("GeminiService: Received response with status code: \(httpResponse.statusCode) in \(String(format: "%.2f", requestDuration))s")
+            if sessionId == nil {
+                print("GeminiService: Received response with status code: \(httpResponse.statusCode) in \(String(format: "%.2f", requestDuration))s")
+            } else {
+                print("GeminiService: Received response with status code: \(httpResponse.statusCode)")
+            }
             
             // Log headers for troubleshooting
             print("GeminiService: Response Headers: \(httpResponse.allHeaderFields)")
@@ -487,8 +543,8 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
     }
 
     // MARK: - Optimized method for pre-processed images
-    func extractText(from processedImage: UIImage) async throws -> String {
-        return try await attemptExtractText(from: processedImage)
+    func extractText(from processedImage: UIImage, sessionId: UUID? = nil) async throws -> String {
+        return try await attemptExtractText(from: processedImage, sessionId: sessionId)
     }
 
     // MARK: - Request Body Construction

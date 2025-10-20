@@ -109,6 +109,21 @@ struct CameraPreviewArea: View {
                 cameraManager.stopSession()
             }
             
+            // Zoom indicator overlay
+            VStack {
+                HStack {
+                    Spacer()
+                    ZoomIndicator(
+                        currentZoom: cameraManager.currentZoomFactor,
+                        minZoom: cameraManager.minZoomFactor,
+                        maxZoom: cameraManager.maxZoomFactor
+                    )
+                    .padding(.top, 20)
+                    .padding(.trailing, 20)
+                }
+                Spacer()
+            }
+            
             if isLoading {
                 LoadingOverlay(currentQuote: currentQuote)
             }
@@ -190,6 +205,44 @@ struct ControlsArea: View {
     }
 }
 
+// MARK: - Simplified Zoom Indicator
+struct ZoomIndicator: View {
+    let currentZoom: CGFloat
+    let minZoom: CGFloat
+    let maxZoom: CGFloat
+    @State private var showIndicator = false
+    
+    var body: some View {
+        if showIndicator && currentZoom > 1.1 {
+            Text(String(format: "%.1fx", currentZoom))
+                .font(.system(size: 14, weight: .medium, design: .monospaced))
+                .foregroundColor(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.black.opacity(0.7))
+                )
+                .transition(.opacity)
+                .onChange(of: currentZoom) { _, _ in
+                    showIndicatorTemporarily()
+                }
+        }
+    }
+    
+    private func showIndicatorTemporarily() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            showIndicator = true
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                showIndicator = false
+            }
+        }
+    }
+}
+
 // MARK: - Settings Toggle Component
 struct SettingsToggleButton: View {
     @Binding var isShowingSettings: Bool
@@ -265,65 +318,87 @@ extension CameraView {
         isLoading = true
         currentQuote = notebookQuotes.randomElement()
         
+        // Start performance logging session for the entire photo-to-note pipeline
+        let sessionId = PerformanceLogger.shared.startSession()
+        
         cameraManager.capturePhoto { result in
             Task {
-                await handlePhotoCapture(result: result)
+                await handlePhotoCapture(result: result, sessionId: sessionId)
             }
         }
     }
     
-    private func handlePhotoCapture(result: Result<Data, CameraManager.CameraError>) async {
+    private func handlePhotoCapture(result: Result<Data, CameraManager.CameraError>, sessionId: UUID) async {
         do {
-            let capturedImageData = try result.get()
+            // Log photo capture completion (conflated with session start)
+            let capturedImageData = try await PerformanceLogger.shared.measureOperation(
+                "Photo Capture Pipeline",
+                sessionId: sessionId
+            ) {
+                try result.get()
+            }
             print("Photo captured successfully, size: \(capturedImageData.count) bytes")
 
             // 1. Process image once and cache it - eliminates redundant UIImage creations
-            let processedImage = try await processImageOnce(from: capturedImageData)
+            let processedImage = try await processImageOnce(from: capturedImageData, sessionId: sessionId)
             print("Image processed and cached, size: \(processedImage.size)")
 
             // 2. Run parallel processing using cached image - eliminates sequential blocking
-            async let photoSaveTask = savePhotoIfNeeded(image: processedImage)
-            async let textExtractionTask = extractTextFromProcessedImage(processedImage)
+            async let photoSaveTask = savePhotoIfNeeded(image: processedImage, sessionId: sessionId)
+            async let textExtractionTask = extractTextFromProcessedImage(processedImage, sessionId: sessionId)
             
             // Wait for both operations to complete
             let (photoURL, extractedText) = try await (photoSaveTask, textExtractionTask)
             print("Parallel processing completed - Photo: \(photoURL?.absoluteString ?? "not saved"), Text: \(extractedText.prefix(50))...")
 
             // 3. Send to target app
-            try await sendToTargetApp(text: extractedText)
+            try await sendToTargetApp(text: extractedText, sessionId: sessionId)
 
-            // 4. Single state update at the end - eliminates multiple MainActor calls
+            // 4. Complete the performance logging session
+            PerformanceLogger.shared.endSession(sessionId)
+
+            // 5. Single state update at the end - eliminates multiple MainActor calls
             await MainActor.run { 
                 isLoading = false 
                 print("Processing pipeline completed successfully")
             }
 
         } catch let error as CameraManager.CameraError {
+            PerformanceLogger.shared.cancelSession(sessionId)
             await handleError(error.localizedDescription)
         } catch let error as APIError {
+            PerformanceLogger.shared.cancelSession(sessionId)
             await handleError("Gemini Error: \(error.localizedDescription)")
         } catch let error as VisionError {
+            PerformanceLogger.shared.cancelSession(sessionId)
             await handleError("Vision Error: \(error.localizedDescription)")
         } catch let error as DraftsError {
+            PerformanceLogger.shared.cancelSession(sessionId)
             await handleError(error.localizedDescription)
         } catch {
+            PerformanceLogger.shared.cancelSession(sessionId)
             await handleError("An unexpected error occurred: \(error.localizedDescription)")
         }
     }
     
     // MARK: - Optimized Image Processing
     
-    private func processImageOnce(from data: Data) async throws -> UIImage {
-        guard let imageToProcess = UIImage(data: data) else {
-            throw CameraManager.CameraError.processingFailed("Could not create UIImage from captured data.")
-        }
+    private func processImageOnce(from data: Data, sessionId: UUID) async throws -> UIImage {
+        return try await PerformanceLogger.shared.measureOperation(
+            "Image Preprocessing",
+            sessionId: sessionId
+        ) {
+            guard let imageToProcess = UIImage(data: data) else {
+                throw CameraManager.CameraError.processingFailed("Could not create UIImage from captured data.")
+            }
 
-        // For now, return the original image without any processing
-        // This could be enhanced with resizing/optimization if needed for the UI
-        return imageToProcess
+            // For now, return the original image without any processing
+            // This could be enhanced with resizing/optimization if needed for the UI
+            return imageToProcess
+        }
     }
     
-    private func extractTextFromProcessedImage(_ processedImage: UIImage) async throws -> String {
+    private func extractTextFromProcessedImage(_ processedImage: UIImage, sessionId: UUID) async throws -> String {
         let defaults = UserDefaults.standard
         let selectedServiceRaw = defaults.string(forKey: "textExtractorService") ?? TextExtractorType.gemini.rawValue
         var selectedService = TextExtractorType(rawValue: selectedServiceRaw) ?? .gemini
@@ -350,19 +425,22 @@ extension CameraView {
         }
 
         print("Calling \(selectedService.rawValue) Service with cached image...")
-        let extractedText = try await textExtractor.extractText(from: processedImage)
+        let extractedText = try await textExtractor.extractText(from: processedImage, sessionId: sessionId)
         print("Successfully extracted text: \(extractedText.prefix(100))...")
         return extractedText
     }
     
-    private func savePhotoIfNeeded(image: UIImage) async throws -> URL? {
+    private func savePhotoIfNeeded(image: UIImage, sessionId: UUID) async throws -> URL? {
         let savePhotosEnabled = UserDefaults.standard.bool(forKey: "savePhotosEnabled")
         let photoFolder = UserDefaults.standard.string(forKey: "photoFolderName") ?? "notebook"
         let shouldSavePhoto = savePhotosEnabled && !photoFolder.isEmpty
         
         guard shouldSavePhoto else { return nil }
         
-        do {
+        return try await PerformanceLogger.shared.measureOperation(
+            "Photo Saving",
+            sessionId: sessionId
+        ) {
             print("Saving photo to album: \(photoFolder)")
             guard let processedImageData = image.jpegData(compressionQuality: 0.9) else {
                 throw CameraManager.CameraError.processingFailed("Could not encode processed image for saving.")
@@ -371,41 +449,43 @@ extension CameraView {
             let photoURL = cameraManager.generatePhotoURL(for: localIdentifier)
             print("Photo saved with URL: \(photoURL?.absoluteString ?? "none")")
             return photoURL
-        } catch {
-            print("Warning: Failed to save photo: \(error.localizedDescription)")
-            return nil
         }
     }
     
-    private func sendToTargetApp(text: String) async throws {
-        let draftsTag = UserDefaults.standard.string(forKey: "draftsTag") ?? "notebook"
-        let addDraftTagEnabled = UserDefaults.standard.bool(forKey: "addDraftTagEnabled")
-        print("Using draftsTag: \(draftsTag), addDraftTagEnabled: \(addDraftTagEnabled)")
+    private func sendToTargetApp(text: String, sessionId: UUID) async throws {
+        try await PerformanceLogger.shared.measureVoidOperation(
+            "Drafts App Integration",
+            sessionId: sessionId
+        ) {
+            let draftsTag = UserDefaults.standard.string(forKey: "draftsTag") ?? "notebook"
+            let addDraftTagEnabled = UserDefaults.standard.bool(forKey: "addDraftTagEnabled")
+            print("Using draftsTag: \(draftsTag), addDraftTagEnabled: \(addDraftTagEnabled)")
 
-        // Include photo link in text if available and enabled in settings
-        let finalText = text
-        
-        var tagsToSend = [String]()
-        if addDraftTagEnabled && !draftsTag.isEmpty {
-            tagsToSend.append(draftsTag)
-        }
+            // Include photo link in text if available and enabled in settings
+            let finalText = text
+            
+            var tagsToSend = [String]()
+            if addDraftTagEnabled && !draftsTag.isEmpty {
+                tagsToSend.append(draftsTag)
+            }
 
-        let uniqueTags = Set(tagsToSend)
-        let combinedTags = uniqueTags.joined(separator: ",")
+            let uniqueTags = Set(tagsToSend)
+            let combinedTags = uniqueTags.joined(separator: ",")
 
-        if isDraftsAppInstalled() {
-            print("Drafts app is installed. Sending text to Drafts.")
-            try await sendToDraftsApp(text: finalText, tags: combinedTags)
-        } else {
-            print("Drafts app is not installed. Presenting share sheet.")
-            presentShareSheet(text: finalText)
-            print("Share sheet presented (or attempted).")
+            if isDraftsAppInstalled() {
+                print("Drafts app is installed. Sending text to Drafts.")
+                try await sendToDraftsApp(text: finalText, tags: combinedTags, sessionId: sessionId)
+            } else {
+                print("Drafts app is not installed. Presenting share sheet.")
+                try await presentShareSheet(text: finalText, sessionId: sessionId)
+                print("Share sheet presented (or attempted).")
+            }
         }
     }
     
-    private func sendToDraftsApp(text: String, tags: String) async throws {
+    private func sendToDraftsApp(text: String, tags: String, sessionId: UUID) async throws {
         print("Calling Drafts Helper with text: \(text.prefix(50))... and tags: \(tags)")
-        let _ = try await DraftsHelper.createDraftAsync(with: text, tag: tags)
+        let _ = try await DraftsHelper.createDraftAsync(with: text, tag: tags, sessionId: sessionId)
         print("Drafts Helper call succeeded.")
     }
     
@@ -418,29 +498,35 @@ extension CameraView {
         }
     }
 
-    @MainActor
-    private func presentShareSheet(text: String) {
-        let activityItems: [Any] = [text]
+    private func presentShareSheet(text: String, sessionId: UUID) async throws {
+        try await PerformanceLogger.shared.measureVoidOperation(
+            "Share Sheet Presentation",
+            sessionId: sessionId
+        ) {
+            await MainActor.run {
+                let activityItems: [Any] = [text]
 
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let rootViewController = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
-            print("Error: Could not find root view controller to present share sheet.")
-            self.errorMessage = "Could not initiate sharing."
-            self.showErrorAlert = true
-            return
+                guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                      let rootViewController = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
+                    print("Error: Could not find root view controller to present share sheet.")
+                    self.errorMessage = "Could not initiate sharing."
+                    self.showErrorAlert = true
+                    return
+                }
+
+                let activityViewController = UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+
+                if let popoverController = activityViewController.popoverPresentationController {
+                    popoverController.sourceView = rootViewController.view
+                    popoverController.sourceRect = CGRect(x: rootViewController.view.bounds.midX,
+                                                        y: rootViewController.view.bounds.midY,
+                                                        width: 0, height: 0)
+                    popoverController.permittedArrowDirections = []
+                }
+
+                rootViewController.present(activityViewController, animated: true, completion: nil)
+            }
         }
-
-        let activityViewController = UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
-
-        if let popoverController = activityViewController.popoverPresentationController {
-            popoverController.sourceView = rootViewController.view
-            popoverController.sourceRect = CGRect(x: rootViewController.view.bounds.midX,
-                                                y: rootViewController.view.bounds.midY,
-                                                width: 0, height: 0)
-            popoverController.permittedArrowDirections = []
-        }
-
-        rootViewController.present(activityViewController, animated: true, completion: nil)
     }
 
     private func playShutterSound() {

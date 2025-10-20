@@ -21,6 +21,12 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
     @Published var minZoomFactor: CGFloat = 1.0
     @Published var maxZoomFactor: CGFloat = 10.0
     // ---------------------
+    
+    // --- Multi-Camera Support ---
+    @Published var availableCameras: [AVCaptureDevice] = []
+    @Published var currentCameraIndex: Int = 0
+    private var cameraDiscoverySession: AVCaptureDevice.DiscoverySession?
+    // ---------------------------
 
     // --- Photo Saving ---
     @Published var lastSavedPhotoLocalIdentifier: String? // For linking to saved photos
@@ -163,15 +169,20 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
         session.sessionPreset = .photo
         print("CameraManager: Using .photo preset for high resolution capture")
 
-        // Input Device (Back Camera) - streamlined setup
-        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
-            print("Error: No back camera device found.")
+        // Discover all available back cameras including macro
+        setupCameraDiscovery()
+        
+        guard !availableCameras.isEmpty else {
+            print("Error: No back camera devices found.")
             DispatchQueue.main.async {
                 self.errorMessage = CameraError.noDeviceFound.localizedDescription
             }
             session.commitConfiguration()
             return
         }
+        
+        // Start with the best available camera (prefer macro for close focus)
+        let device = selectBestInitialCamera()
         
         guard let input = try? AVCaptureDeviceInput(device: device) else {
             print("Error: Could not create camera input.")
@@ -244,17 +255,23 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
         // Configure device settings and check flash availability
         let hasFlash = device.hasFlash
         
-        // Configure zoom limits
+        // Configure zoom limits based on all available cameras
         let deviceMinZoom = device.minAvailableVideoZoomFactor
         let deviceMaxZoom = min(device.maxAvailableVideoZoomFactor, 10.0) // Cap at 10x for usability
+        
+        // Calculate overall zoom range considering all cameras
+        let overallMaxZoom = availableCameras.reduce(deviceMaxZoom) { maxZoom, camera in
+            let cameraMax = min(camera.maxAvailableVideoZoomFactor, 10.0)
+            return max(maxZoom, cameraMax)
+        }
         
         DispatchQueue.main.async {
             self.isFlashAvailable = hasFlash
             if !hasFlash { self.flashMode = .off }
             
-            // Set zoom limits
+            // Set zoom limits considering all available cameras
             self.minZoomFactor = deviceMinZoom
-            self.maxZoomFactor = deviceMaxZoom
+            self.maxZoomFactor = overallMaxZoom
         }
         
         // Set initial zoom from user defaults
@@ -277,6 +294,66 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
 
         session.commitConfiguration()
         print("Camera session setup complete.")
+    }
+    
+    // MARK: - Simplified Multi-Camera Support
+    
+    /// Discovers available back cameras and selects the best one for document scanning
+    private func setupCameraDiscovery() {
+        // Simple device discovery - prefer triple camera, then dual, then wide
+        let deviceTypes: [AVCaptureDevice.DeviceType] = [
+            .builtInTripleCamera,
+            .builtInDualWideCamera, 
+            .builtInDualCamera,
+            .builtInWideAngleCamera
+        ]
+        
+        cameraDiscoverySession = AVCaptureDevice.DiscoverySession(
+            deviceTypes: deviceTypes,
+            mediaType: .video,
+            position: .back
+        )
+        
+        availableCameras = cameraDiscoverySession?.devices.filter { 
+            !$0.isSuspended && $0.isConnected 
+        } ?? []
+        
+        print("CameraManager: Found \(availableCameras.count) cameras")
+    }
+    
+    /// Returns the best available camera, preferring newer multi-camera systems
+    private func selectBestInitialCamera() -> AVCaptureDevice {
+        return availableCameras.first ?? 
+               AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)!
+    }
+    
+    /// Simple camera selection based on zoom level
+    private func selectOptimalCameraForZoom(_ targetZoom: CGFloat) -> (device: AVCaptureDevice, adjustedZoom: CGFloat)? {
+        guard !availableCameras.isEmpty else { return nil }
+        
+        var bestCamera: AVCaptureDevice?
+        var adjustedZoom = targetZoom
+        
+        // For high zoom (>3x), prefer telephoto if available
+        if targetZoom > 3.0 {
+            bestCamera = availableCameras.first { $0.deviceType == .builtInTelephotoCamera }
+            if bestCamera != nil {
+                adjustedZoom = targetZoom / 2.0 // Adjust for 2x telephoto
+            }
+        }
+        
+        // Fallback to the best available camera
+        if bestCamera == nil {
+            bestCamera = availableCameras.first
+        }
+        
+        guard let selectedCamera = bestCamera else { return nil }
+        
+        // Clamp zoom to camera limits
+        let clampedZoom = min(max(adjustedZoom, selectedCamera.minAvailableVideoZoomFactor), 
+                             selectedCamera.maxAvailableVideoZoomFactor)
+        
+        return (device: selectedCamera, adjustedZoom: clampedZoom)
     }
 
     // MARK: - Session Control
@@ -568,9 +645,9 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
         }
     }
     
-    // MARK: - Zoom Control
+    // MARK: - Simplified Zoom Control
     
-    /// Set zoom factor on the camera device
+    /// Set zoom factor on the current camera device
     private func setZoom(factor: CGFloat, on device: AVCaptureDevice) {
         do {
             try device.lockForConfiguration()
@@ -581,24 +658,31 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
             DispatchQueue.main.async {
                 self.currentZoomFactor = clampedZoom
             }
-            print("CameraManager: Set zoom to \(clampedZoom)x")
         } catch {
             print("CameraManager: Error setting zoom: \(error.localizedDescription)")
         }
     }
     
-    /// Set zoom factor - public API for external callers
+    /// Set zoom factor - public API
     func setZoomFactor(_ factor: CGFloat) {
         sessionQueue.async { [weak self] in
-            guard let self = self, let device = self.videoDevice else {
-                print("CameraManager: Cannot set zoom - no video device")
-                return
+            guard let self = self, let device = self.videoDevice else { return }
+            
+            // Simple approach: try camera switching only for significant zoom changes
+            if factor > 3.0, let optimalCamera = self.selectOptimalCameraForZoom(factor) {
+                let currentDevice = self.videoDeviceInput?.device
+                if currentDevice?.uniqueID != optimalCamera.device.uniqueID {
+                    self.switchToCamera(optimalCamera.device, withZoom: optimalCamera.adjustedZoom)
+                    return
+                }
             }
+            
+            // Otherwise just set zoom on current camera
             self.setZoom(factor: factor, on: device)
         }
     }
     
-    /// Update zoom based on pinch gesture scale
+    /// Update zoom based on pinch gesture
     func updateZoom(scale: CGFloat) {
         sessionQueue.async { [weak self] in
             guard let self = self, let device = self.videoDevice else { return }
@@ -606,5 +690,48 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
             let newZoomFactor = self.currentZoomFactor * scale
             self.setZoom(factor: newZoomFactor, on: device)
         }
+    }
+    
+    /// Simplified camera switching
+    private func switchToCamera(_ newDevice: AVCaptureDevice, withZoom zoom: CGFloat) {
+        guard session.isRunning else { return }
+        
+        session.beginConfiguration()
+        
+        // Remove current input
+        if let currentInput = videoDeviceInput {
+            session.removeInput(currentInput)
+        }
+        
+        // Add new input
+        do {
+            let newInput = try AVCaptureDeviceInput(device: newDevice)
+            if session.canAddInput(newInput) {
+                session.addInput(newInput)
+                videoDeviceInput = newInput
+                
+                // Basic device configuration
+                try newDevice.lockForConfiguration()
+                if newDevice.isFocusModeSupported(.continuousAutoFocus) {
+                    newDevice.focusMode = .continuousAutoFocus
+                }
+                if newDevice.isAutoFocusRangeRestrictionSupported {
+                    newDevice.autoFocusRangeRestriction = .near
+                }
+                
+                let clampedZoom = min(max(zoom, newDevice.minAvailableVideoZoomFactor), newDevice.maxAvailableVideoZoomFactor)
+                newDevice.videoZoomFactor = clampedZoom
+                newDevice.unlockForConfiguration()
+                
+                DispatchQueue.main.async {
+                    self.currentZoomFactor = clampedZoom
+                    self.maxZoomFactor = min(newDevice.maxAvailableVideoZoomFactor, 10.0)
+                }
+            }
+        } catch {
+            print("CameraManager: Error switching camera: \(error.localizedDescription)")
+        }
+        
+        session.commitConfiguration()
     }
 }

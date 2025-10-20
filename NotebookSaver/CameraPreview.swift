@@ -85,7 +85,11 @@ class PreviewView: UIView {
         
         if gesture.state == .changed {
             onPinchZoom(gesture.scale)
-            gesture.scale = 1.0 // Reset scale for next change
+            gesture.scale = 1.0 // Reset for next change
+        } else if gesture.state == .began {
+            // Light haptic feedback on zoom start
+            let feedback = UIImpactFeedbackGenerator(style: .light)
+            feedback.impactOccurred(intensity: 0.5)
         }
     }
     

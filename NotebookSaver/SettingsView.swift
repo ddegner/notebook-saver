@@ -141,6 +141,7 @@ struct SettingsView: View {
 
     @State private var showOnboarding = false
     @State private var showResetConfirmation = false
+    @State private var showingPerformanceLogs = false
     
     // Computed property for dynamic API key placeholder text
     private var apiKeyPlaceholderText: String {
@@ -624,6 +625,12 @@ struct SettingsView: View {
 
                 // Links Section
                 VStack(spacing: 20) {
+                    Button("Performance Logs") {
+                        showingPerformanceLogs = true
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color.orangeTabbyAccent)
+                    
                     Button("How to get an API Key") {
                         showApiKeyOnboarding()
                     }
@@ -661,6 +668,9 @@ struct SettingsView: View {
                     }
                 } message: {
                     Text("This will reset all settings to their default values. This action cannot be undone.")
+                }
+                .sheet(isPresented: $showingPerformanceLogs) {
+                    PerformanceLogView()
                 }
 
                 Spacer(minLength: 40)

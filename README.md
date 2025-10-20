@@ -5,6 +5,10 @@ A powerful iOS app that transforms handwritten notes and documents into digital 
 ## Features
 
 ### 📸 Smart Camera Capture
+- **Multi-Camera System**: Automatically uses all available cameras including macro for close focus
+- **Intelligent Camera Switching**: Seamlessly switches between wide, ultra-wide, telephoto, and macro cameras based on zoom level
+- **Pinch-to-Zoom**: Smooth pinch gestures with automatic camera selection for optimal image quality
+- **Macro Photography**: Enhanced close-focus capabilities for detailed document capture
 - Real-time camera preview with optimized capture settings
 - Automatic image preprocessing for better OCR accuracy
 - High-quality HEIC image encoding for efficient processing
@@ -61,9 +65,18 @@ A powerful iOS app that transforms handwritten notes and documents into digital 
 
 ### 3. Start Capturing
 1. Point your camera at handwritten text or documents
-2. Tap the capture button
-3. Wait for AI processing
-4. Review and use the extracted text
+2. Use pinch gestures to zoom in/out - the app automatically selects the best camera
+3. For close-up text, zoom in to activate macro mode for enhanced detail
+4. Tap the capture button
+5. Wait for AI processing
+6. Review and use the extracted text
+
+### Camera Features
+- **Multi-Camera Support**: Automatically discovers and uses the best available camera (triple, dual, or wide)
+- **Smart Zoom Switching**: Switches to telephoto camera for zoom levels above 3x when available
+- **Pinch-to-Zoom**: Smooth gesture control with haptic feedback
+- **Visual Zoom Indicator**: Shows current zoom level when zoomed in
+- **Optimized Focus**: Automatic near-focus restriction for document scanning
 
 ## Configuration Options
 
