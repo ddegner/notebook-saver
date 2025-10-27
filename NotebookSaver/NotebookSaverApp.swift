@@ -12,6 +12,11 @@ struct NotebookSaverApp: App {
             ContentView()
                 .environmentObject(appState)
                 .environmentObject(cameraManager)
+                .onOpenURL { url in
+                    print("📎 NotebookSaver received URL: \(url.path)")
+                    print("📎 URL scheme: \(url.scheme ?? "none"), file extension: \(url.pathExtension)")
+                    appState.processOpenedImage(url: url)
+                }
                 .sheet(isPresented: $appState.showOnboarding) {
                     OnboardingView(isOnboarding: $appState.showOnboarding)
                         .environmentObject(appState)

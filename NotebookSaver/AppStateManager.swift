@@ -3,6 +3,8 @@ import SwiftUI
 class AppStateManager: ObservableObject {
     @Published var showOnboarding = false
     @Published var shouldReloadAPIKey = false
+    @Published var imageToProcess: URL?
+    @Published var isProcessingOpenedImage: Bool = false
     
     func presentOnboarding() {
         showOnboarding = true
@@ -14,5 +16,15 @@ class AppStateManager: ObservableObject {
     
     func triggerAPIKeyReload() {
         shouldReloadAPIKey.toggle()
+    }
+    
+    func processOpenedImage(url: URL) {
+        imageToProcess = url
+        isProcessingOpenedImage = true
+    }
+    
+    func clearOpenedImage() {
+        imageToProcess = nil
+        isProcessingOpenedImage = false
     }
 }

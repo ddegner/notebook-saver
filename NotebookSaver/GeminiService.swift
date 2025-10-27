@@ -35,20 +35,13 @@ class GeminiModelService: ObservableObject {
             throw APIError.invalidApiEndpoint("Invalid URL configuration")
         }
         
-        // The base URL already ends with "models/", so we don't append "models" again
-        let modelsUrl = baseUrl
-        var request = URLRequest(url: modelsUrl)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 30.0
-        
-        // Use query parameter for API key (consistent with other Gemini API calls)
-        var urlComponents = URLComponents(url: modelsUrl, resolvingAgainstBaseURL: false)
-        urlComponents?.queryItems = [URLQueryItem(name: "key", value: apiKey)]
-        
-        guard let finalUrl = urlComponents?.url else {
+        guard let finalUrl = GeminiService.buildURLWithAPIKey(baseURL: baseUrl, apiKey: apiKey) else {
             throw APIError.invalidApiEndpoint("Failed to construct URL with API key")
         }
-        request.url = finalUrl
+        
+        var request = URLRequest(url: finalUrl)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 30.0
         
         let (data, response) = try await URLSession.shared.data(for: request)
         
@@ -56,51 +49,32 @@ class GeminiModelService: ObservableObject {
             throw APIError.networkError(URLError(.badServerResponse))
         }
         
-        // Handle 401 specifically for better error messaging
-        if httpResponse.statusCode == 401 {
-            throw APIError.authenticationError
-        }
-        
         guard httpResponse.statusCode == 200 else {
-            throw APIError.serverError(httpResponse.statusCode)
+            throw httpResponse.statusCode == 401 ? APIError.authenticationError : APIError.serverError(httpResponse.statusCode)
         }
         
         let modelsResponse = try JSONDecoder().decode(GeminiModelsResponse.self, from: data)
-        guard let apiModels = modelsResponse.models else {
-            return getDefaultModelIds()
-        }
+        let models = modelsResponse.models.map(convertToModelIds) ?? getDefaultModelIds()
         
-        let models = convertToModelIds(apiModels)
         await cacheModelIds(models)
-        
         return models
     }
     
     // Convert API response to model ID strings
     private func convertToModelIds(_ apiModels: [GeminiModelInfo]) -> [String] {
-        var modelIds: [String] = []
+        let knownModels: Set<String> = [
+            "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro", 
+            "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.5-flash-8b"
+        ]
         
-        for apiModel in apiModels {
-            // Extract model name from the full path (e.g., "models/gemini-2.5-flash" -> "gemini-2.5-flash")
-            let modelName = apiModel.name.replacingOccurrences(of: "models/", with: "")
-            
-            // Skip certain models (embedding, etc.)
-            if modelName.contains("embedding") || modelName.contains("imagen") || modelName.contains("veo") {
-                continue
+        return apiModels
+            .map { $0.name.replacingOccurrences(of: "models/", with: "") }
+            .filter { modelName in
+                !modelName.contains("embedding") && 
+                !modelName.contains("imagen") && 
+                !modelName.contains("veo") &&
+                knownModels.contains(modelName)
             }
-            
-            // Only include known models
-            switch modelName {
-            case "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro", "gemini-2.0-flash", 
-                 "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.5-flash-8b":
-                modelIds.append(modelName)
-            default:
-                // Skip unknown models
-                break
-            }
-        }
-        
-        return modelIds
     }
     
     // Cache model IDs to UserDefaults
@@ -131,8 +105,8 @@ class GeminiModelService: ObservableObject {
     // Fallback default model IDs
     private func getDefaultModelIds() -> [String] {
         return [
+            "gemini-2.5-flash-lite",
             "gemini-2.5-flash",
-            "gemini-2.5-flash-lite", 
             "gemini-2.5-pro",
             "gemini-2.0-flash",
             "gemini-1.5-pro",
@@ -168,13 +142,12 @@ struct GeminiModelInfo: Codable {
     }
 }
 
-// MARK: - Existing GeminiService class continues below...
-class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
+class GeminiService: ImageTextExtractor {
     // Track if connection has been verified to avoid redundant warm-ups
     private static var connectionVerified = false
 
     // Defaults
-    private let defaultModelId = "gemini-2.5-flash" // Default model if nothing is set
+    private let defaultModelId = "gemini-2.5-flash-lite" // Default model if nothing is set
     private let defaultPrompt = "Extract text accurately from this image of a notebook page."
     private static let defaultApiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/"
     private let defaultDraftsTag = "notebook"
@@ -186,7 +159,6 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
     private let maxRetryAttempts = 2 // Reduced from 3 for faster failure detection
     private let initialRetryDelay: TimeInterval = 0.5 // Reduced from 1.0 for faster retries
 
-    // Instantiate the shared preprocessor - RENAME to ImageProcessor
     private let imageProcessor = ImageProcessor()
 
     // Helper to get settings from UserDefaults
@@ -198,7 +170,7 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
         let endpointString = defaults.string(forKey: "apiEndpointUrlString") ?? GeminiService.defaultApiEndpoint
         let apiEndpointUrl = URL(string: endpointString)
 
-        let selectedId = defaults.string(forKey: "selectedModelId") ?? "gemini-2.5-flash"
+        let selectedId = defaults.string(forKey: "selectedModelId") ?? "gemini-2.5-flash-lite"
         var modelToUse: String?
         if selectedId == "Custom" {
             modelToUse = defaults.string(forKey: "customModelName")?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -216,58 +188,35 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
         return (apiKey, apiEndpointUrl, modelToUse, prompt, draftsTag, thinkingEnabled)
     }
 
+    // MARK: - URL Construction Helper
+    
+    static func buildURLWithAPIKey(baseURL: URL, apiKey: String) -> URL? {
+        var urlComponents = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
+        urlComponents?.queryItems = [URLQueryItem(name: "key", value: apiKey)]
+        return urlComponents?.url
+    }
+
     // MARK: - Connection Warming
 
     public static func warmUpConnection() async -> Bool {
-        print("GeminiService: Testing connection...")
-        let defaults = UserDefaults.standard
         let apiKey = KeychainService.loadAPIKey()
+        let endpointString = UserDefaults.standard.string(forKey: "apiEndpointUrlString") ?? defaultApiEndpoint
+        
+        guard let apiBaseUrl = URL(string: endpointString) else { return false }
+        guard let key = apiKey, !key.isEmpty else { return false }
+        guard let finalUrl = buildURLWithAPIKey(baseURL: apiBaseUrl, apiKey: key) else { return false }
 
-        let endpointString = defaults.string(forKey: "apiEndpointUrlString") ?? defaultApiEndpoint
-        guard let apiBaseUrl = URL(string: endpointString) else {
-            print("GeminiService (WarmUp): Invalid API Endpoint URL configured: \(endpointString)")
-            return false
-        }
-
-        guard let key = apiKey, !key.isEmpty else {
-            print("GeminiService (WarmUp): API Key is missing. Skipping connection warm-up.")
-            return false
-        }
-
-        // Use a lightweight endpoint, like listing models
-        // The base URL already ends with "models/", so we don't append "models" again
-        let warmUpUrl = apiBaseUrl
-        var request = URLRequest(url: warmUpUrl)
-        request.httpMethod = "GET" // Typically, listing models is a GET request
-        request.timeoutInterval = 10.0 // Add timeout for connection test
-
-        var urlComponents = URLComponents(url: warmUpUrl, resolvingAgainstBaseURL: false)
-        urlComponents?.queryItems = [URLQueryItem(name: "key", value: key)]
-
-        guard let finalUrl = urlComponents?.url else {
-            print("GeminiService (WarmUp): Failed to construct URL with API key.")
-            return false
-        }
-        request.url = finalUrl
+        var request = URLRequest(url: finalUrl)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 10.0
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                print("GeminiService (WarmUp): Invalid response from server.")
-                return false
-            }
-
-            if (200...299).contains(httpResponse.statusCode) {
-                print("GeminiService (WarmUp): Connection successful (Status: \(httpResponse.statusCode)). Ready for requests.")
-                connectionVerified = true
-                return true
-            } else {
-                print("GeminiService (WarmUp): Connection attempt failed with status code: \(httpResponse.statusCode). Response: \(String(data: data, encoding: .utf8) ?? "No response body")")
-                connectionVerified = false
-                return false
-            }
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else { return false }
+            
+            connectionVerified = (200...299).contains(httpResponse.statusCode)
+            return connectionVerified
         } catch {
-            print("GeminiService (WarmUp): Network error during connection warm-up: \(error.localizedDescription)")
             connectionVerified = false
             return false
         }
@@ -278,43 +227,30 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
     func extractText(from imageData: Data, sessionId: UUID? = nil) async throws -> String {
         var retryCount = 0
         
-        // Function to implement exponential backoff
-        func calculateBackoff(attempt: Int) -> TimeInterval {
-            return initialRetryDelay * pow(2.0, Double(attempt))
-        }
-        
-        // Keep retrying until max attempts reached
         while true {
             do {
                 return try await attemptExtractText(from: imageData, sessionId: sessionId)
-            } catch APIError.serviceUnavailable where retryCount < maxRetryAttempts {
-                retryCount += 1
-                let delay = calculateBackoff(attempt: retryCount - 1)
-                print("GeminiService: API Service Unavailable (503). Implementing exponential backoff.")
-                print("GeminiService: Retry \(retryCount)/\(maxRetryAttempts) will occur after \(String(format: "%.2f", delay))s")
-                
-                // Check network connectivity before retrying
-                let reachability = Reachability()
-                print("GeminiService: Network status before retry: \(reachability.connection == .unavailable ? "Offline" : "Online")")
-                
-                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                print("GeminiService: Executing retry attempt \(retryCount)...")
-                continue
-            } catch APIError.serverError where retryCount < maxRetryAttempts {
-                retryCount += 1
-                let delay = calculateBackoff(attempt: retryCount - 1)
-                print("GeminiService: API Server Error (5xx). Implementing exponential backoff.")
-                print("GeminiService: Retry \(retryCount)/\(maxRetryAttempts) will occur after \(String(format: "%.2f", delay))s")
-                
-                // Check network connectivity before retrying
-                let reachability = Reachability()
-                print("GeminiService: Network status before retry: \(reachability.connection == .unavailable ? "Offline" : "Online")")
-                
-                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                print("GeminiService: Executing retry attempt \(retryCount)...")
-                continue
             } catch {
-                throw error
+                // Check if this is a retryable error
+                let shouldRetry: Bool
+                if let apiError = error as? APIError {
+                    switch apiError {
+                    case .serviceUnavailable, .serverError:
+                        shouldRetry = true
+                    default:
+                        shouldRetry = false
+                    }
+                } else {
+                    shouldRetry = false
+                }
+                
+                guard shouldRetry && retryCount < maxRetryAttempts else { throw error }
+                
+                retryCount += 1
+                let delay = initialRetryDelay * pow(2.0, Double(retryCount - 1))
+                
+                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                continue
             }
         }
     }
@@ -349,21 +285,8 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
             "endpoint": apiBaseUrl.absoluteString
         ]
         
-        // Add thinking directives to the prompt if thinking is enabled
-        let prompt: String
-        if thinkingEnabled {
-            prompt = """
-                THINKING: on
-                REASONING: on
-                PLANNING: on
-                
-                Take time to think through the image carefully. Analyze the content thoroughly and provide thoughtful, accurate text extraction.
-                
-                \(basePrompt)
-                """
-        } else {
-            prompt = basePrompt
-        }
+        // Use base prompt directly - thinking is enabled via API parameter, not prompt text
+        let prompt = basePrompt
         // Quality setting is not currently user-configurable, use a default
         let heicQuality: CGFloat = 0.6 // Set to 0.6 as requested
 
@@ -407,138 +330,94 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
         let base64ImageString = preparedImageData.base64EncodedString()
 
         // 2. Construct Request
-        // Append model and action to the base URL
         let requestUrl = apiBaseUrl.appendingPathComponent("\(model):generateContent")
-        var request = URLRequest(url: requestUrl)
-
+        guard let finalUrl = Self.buildURLWithAPIKey(baseURL: requestUrl, apiKey: apiKey) else {
+            throw APIError.invalidApiEndpoint("Failed to append API key to URL")
+        }
+        
+        var request = URLRequest(url: finalUrl)
         request.httpMethod = "POST"
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 30.0 // Add 30-second timeout to prevent hanging requests
-        // Add API Key
-        // Note: Ensure the key placement (header vs query param) matches the API requirements
-        // Using query parameter for simplicity, header is often preferred.
-        var urlComponents = URLComponents(url: requestUrl, resolvingAgainstBaseURL: false)
-        urlComponents?.queryItems = [URLQueryItem(name: "key", value: apiKey)]
-        guard let finalUrl = urlComponents?.url else {
-             throw APIError.invalidApiEndpoint("Failed to append API key to URL")
-         }
-        request.url = finalUrl
-        // If using header: request.addValue("x-goog-api-key", forHTTPHeaderField: apiKey)
+        request.timeoutInterval = 30.0
 
-        let requestBody = createRequestBody(prompt: prompt, base64Image: base64ImageString)
-
-        do {
-            let jsonData = try JSONEncoder().encode(requestBody)
-            request.httpBody = jsonData
-        } catch {
-            throw APIError.requestEncodingFailed(error)
-        }
+        let requestBody = createRequestBody(prompt: prompt, base64Image: base64ImageString, thinkingEnabled: thinkingEnabled, model: model)
+        request.httpBody = try JSONEncoder().encode(requestBody)
 
         // 3. Perform Network Request
-        do {
-            print("GeminiService: Sending request to API...")
-            print("GeminiService: Target model: \(model)")
-            print("GeminiService: Image size: \(preparedImageData.count) bytes")
+        let (data, response) = try await performRequest(
+            request: request,
+            model: model,
+            sessionId: sessionId,
+            modelInfoConfiguration: modelInfoConfiguration,
+            imageMetadata: imageMetadata
+        )
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.networkError(URLError(.badServerResponse))
+        }
+        
+        // 4. Handle Response
+        return try handleResponse(httpResponse: httpResponse, data: data, model: model)
+    }
+    
+    // MARK: - Network Request Helper
+    
+    private func performRequest(
+        request: URLRequest,
+        model: String,
+        sessionId: UUID?,
+        modelInfoConfiguration: [String: String],
+        imageMetadata: ImageMetadata
+    ) async throws -> (Data, URLResponse) {
+        if let sessionId = sessionId {
+            let modelInfo = ModelInfo(
+                serviceName: "Gemini",
+                modelName: model,
+                configuration: modelInfoConfiguration,
+                imageMetadata: imageMetadata
+            )
             
-            let (data, response): (Data, URLResponse)
-            let requestDuration: TimeInterval
+            return try await PerformanceLogger.shared.measureOperation(
+                "Gemini API Request (\(model))",
+                sessionId: sessionId,
+                modelInfo: modelInfo
+            ) {
+                try await URLSession.shared.data(for: request)
+            }
+        } else {
+            return try await URLSession.shared.data(for: request)
+        }
+    }
+    
+    // MARK: - Response Handler
+    
+    private func handleResponse(httpResponse: HTTPURLResponse, data: Data, model: String) throws -> String {
+        switch httpResponse.statusCode {
+        case 200...299:
+            let decodedResponse = try JSONDecoder().decode(GeminiResponse.self, from: data)
+            let allPartsText = decodedResponse.candidates?.first?.content?.parts?
+                .compactMap { $0.text }
+                .joined(separator: "\n\n")
             
-            if let sessionId = sessionId {
-                // Create complete model info with image metadata
-                let completeModelInfo = ModelInfo(
-                    serviceName: "Gemini",
-                    modelName: model,
-                    configuration: modelInfoConfiguration,
-                    imageMetadata: imageMetadata
-                )
-                
-                // Use performance logger for timing
-                let result = try await PerformanceLogger.shared.measureOperation(
-                    "Gemini API Request (\(model))",
-                    sessionId: sessionId,
-                    modelInfo: completeModelInfo
-                ) {
-                    try await URLSession.shared.data(for: request)
-                }
-                data = result.0
-                response = result.1
-                requestDuration = 0 // Duration already logged by performance logger
-            } else {
-                // Fallback to manual timing when no session provided
-                let startTime = Date()
-                let result = try await URLSession.shared.data(for: request)
-                data = result.0
-                response = result.1
-                requestDuration = Date().timeIntervalSince(startTime)
+            guard let text = allPartsText, !text.isEmpty else {
+                throw APIError.noTextFound
             }
-
-            guard let httpResponse = response as? HTTPURLResponse else {
-                print("GeminiService: Invalid response type received")
-                throw APIError.networkError(URLError(.badServerResponse))
-            }
-
-            if sessionId == nil {
-                print("GeminiService: Received response with status code: \(httpResponse.statusCode) in \(String(format: "%.2f", requestDuration))s")
-            } else {
-                print("GeminiService: Received response with status code: \(httpResponse.statusCode)")
-            }
+            return text
             
-            // Log headers for troubleshooting
-            print("GeminiService: Response Headers: \(httpResponse.allHeaderFields)")
-            
-            // Debug log response body for error cases
-            if httpResponse.statusCode >= 400 {
-                print("GeminiService: Error Response Body: \(String(data: data, encoding: .utf8) ?? "Invalid response data")")
-            }
-
-            // 4. Handle Response
-            switch httpResponse.statusCode {
-            case 200...299:
-                do {
-                    let decodedResponse = try JSONDecoder().decode(GeminiResponse.self, from: data)
-
-                    // The Gemini API might split the response text into multiple parts
-                    // within the first candidate's content.
-                    // We need to concatenate the text from all parts to ensure the full result is captured.
-                    let allPartsText = decodedResponse.candidates?.first?.content?.parts?
-                        .compactMap { $0.text } // Get text from each part, ignoring nil
-                        .joined(separator: "\\\\n\\\\n") // Join parts, maybe with double newline
-
-                    guard let text = allPartsText, !text.isEmpty else {
-                        throw APIError.noTextFound
-                    }
-
-                    print("Successfully extracted text from API.")
-                    return text
-                } catch {
-                    throw APIError.responseDecodingFailed(error)
-                }
-            case 400:
-                 // Check response body for specific error message if possible
-                 let errorDetail = String(data: data, encoding: .utf8)
-                 throw APIError.badRequest(errorDetail)
-            case 401, 403:
-                 throw APIError.authenticationError
-            case 404:
-                // Model not found - suggest refreshing models list
-                throw APIError.modelNotFound(model)
-             case 429:
-                 throw APIError.rateLimitExceeded
-            case 503:
-                print("GeminiService: Service Unavailable (503) - The Gemini API service is temporarily down or overloaded")
-                throw APIError.serviceUnavailable
-            case 500...599:
-                print("GeminiService: Server Error (\(httpResponse.statusCode)) - Details: \(String(data: data, encoding: .utf8) ?? "No details available")")
-                throw APIError.serverError(httpResponse.statusCode)
-            default:
-                throw APIError.unknownError(httpResponse.statusCode)
-            }
-        } catch let error as APIError {
-             print("API Error: \(error.localizedDescription)")
-             throw error // Re-throw specific API errors
-         } catch {
-             print("Network or Unknown Error: \(error.localizedDescription)")
-            throw APIError.networkError(error)
+        case 400:
+            throw APIError.badRequest(String(data: data, encoding: .utf8))
+        case 401, 403:
+            throw APIError.authenticationError
+        case 404:
+            throw APIError.modelNotFound(model)
+        case 429:
+            throw APIError.rateLimitExceeded
+        case 503:
+            throw APIError.serviceUnavailable
+        case 500...599:
+            throw APIError.serverError(httpResponse.statusCode)
+        default:
+            throw APIError.unknownError(httpResponse.statusCode)
         }
     }
 
@@ -549,11 +428,41 @@ class GeminiService: ImageTextExtractor /*: APIServiceProtocol*/ {
 
     // MARK: - Request Body Construction
 
-    private func createRequestBody(prompt: String, base64Image: String) -> GeminiRequest {
+    private func createRequestBody(prompt: String, base64Image: String, thinkingEnabled: Bool, model: String) -> GeminiRequest {
         // Construct the request body based on API documentation
         let imagePart = GeminiRequest.Part(inlineData: GeminiRequest.Part.InlineData(mimeType: "image/heic", data: base64Image))
         let textPart = GeminiRequest.Part(text: prompt)
-        return GeminiRequest(contents: [GeminiRequest.Content(parts: [textPart, imagePart])])
+        
+        // Only include thinking_config if thinking is enabled AND model supports it
+        let generationConfig: GeminiRequest.GenerationConfig?
+        if thinkingEnabled && modelSupportsThinking(model) {
+            let thinkingConfig = GeminiRequest.GenerationConfig.ThinkingConfig(thinkingBudget: nil)
+            generationConfig = GeminiRequest.GenerationConfig(thinkingConfig: thinkingConfig)
+        } else {
+            generationConfig = nil
+        }
+        
+        return GeminiRequest(contents: [GeminiRequest.Content(parts: [textPart, imagePart])], generationConfig: generationConfig)
+    }
+    
+    // Check if model supports thinking (2.5+ series models)
+    private func modelSupportsThinking(_ model: String) -> Bool {
+        let modelLower = model.lowercased()
+        
+        // Match 2.5 and higher versions (2.5, 2.6, 3.0, etc.)
+        // Pattern: gemini-X.Y where X >= 2 and (X > 2 OR Y >= 5)
+        if let range = modelLower.range(of: #"gemini-(\d+)\.(\d+)"#, options: .regularExpression) {
+            let versionString = String(modelLower[range])
+            let components = versionString.replacingOccurrences(of: "gemini-", with: "").split(separator: ".")
+            
+            if components.count >= 2,
+               let major = Int(components[0]),
+               let minor = Int(components[1]) {
+                return major > 2 || (major == 2 && minor >= 5)
+            }
+        }
+        
+        return false
     }
 }
 
@@ -588,9 +497,30 @@ struct GeminiRequest: Codable {
              }
         }
     }
+    
+    struct GenerationConfig: Codable {
+        let thinkingConfig: ThinkingConfig?
+        
+        struct ThinkingConfig: Codable {
+            let thinkingBudget: Int?
+            
+            enum CodingKeys: String, CodingKey {
+                case thinkingBudget = "thinking_budget"
+            }
+        }
+        
+        enum CodingKeys: String, CodingKey {
+            case thinkingConfig = "thinking_config"
+        }
+    }
 
     let contents: [Content]
-    // thinkingBudget not supported in current API version
+    let generationConfig: GenerationConfig?
+    
+    enum CodingKeys: String, CodingKey {
+        case contents
+        case generationConfig = "generation_config"
+    }
 }
 
 struct GeminiResponse: Codable {
@@ -673,15 +603,7 @@ enum APIError: LocalizedError {
     }
 }
 
-// MARK: - Data Extension Helper
 
-extension Data {
-    var isJPEG: Bool {
-        guard count >= 2 else { return false }
-        // Check for JPEG magic bytes FF D8
-        return self[0] == 0xFF && self[1] == 0xD8
-    }
-}
 
 // MARK: - Network Reachability Helper
 

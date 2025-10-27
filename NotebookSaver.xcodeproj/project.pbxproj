@@ -10,6 +10,7 @@
 		7F3764E12DC566A20038F019 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7F3764E02DC566A20038F019 /* WidgetKit.framework */; };
 		7F3764E32DC566A20038F019 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7F3764E22DC566A20038F019 /* SwiftUI.framework */; };
 		7F3764F22DC566A40038F019 /* Cat NoteWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7F3764DE2DC566A20038F019 /* Cat NoteWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		7F530FFC2EAF249800017123 /* icon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 7F530FFB2EAF249800017123 /* icon.icon */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -41,6 +42,7 @@
 		7F3764DE2DC566A20038F019 /* Cat NoteWidgetsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Cat NoteWidgetsExtension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7F3764E02DC566A20038F019 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		7F3764E22DC566A20038F019 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		7F530FFB2EAF249800017123 /* icon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = icon.icon; sourceTree = "<group>"; };
 		7F682F1A2E99803800C56A2D /* Cat Scribe.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Cat Scribe.entitlements"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -125,6 +127,7 @@
 		7F3764DF2DC566A20038F019 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				7F530FFB2EAF249800017123 /* icon.icon */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -224,6 +227,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7F530FFC2EAF249800017123 /* icon.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -388,7 +392,7 @@
 		7F3764B62DC45A9E0038F019 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = icon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CLANG_ENABLE_MODULES = YES;
@@ -432,7 +436,7 @@
 		7F3764B72DC45A9E0038F019 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = icon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CLANG_ENABLE_MODULES = YES;

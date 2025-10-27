@@ -25,10 +25,7 @@ enum PreprocessingError: LocalizedError {
     }
 }
 
-// Utility struct for image processing
 struct ImageProcessor {
-
-    // Reusable CIContext might still be useful for other things, keep for now.
     private let ciContext = CIContext()
 
     // Function to resize a UIImage to specific dimensions with contrast enhancement
@@ -89,51 +86,7 @@ struct ImageProcessor {
         return finalUIImage
     }
 
-    // Function to resize a UIImage using Core Image (potentially faster) - kept for backward compatibility
-    func resizeImage(_ image: UIImage, maxDimension: CGFloat) throws -> UIImage {
-        guard let originalCIImage = CIImage(image: image) else {
-             throw PreprocessingError.invalidImageData // Or a more specific CIImage creation error
-         }
 
-        let originalSize = originalCIImage.extent.size
-        guard max(originalSize.width, originalSize.height) > 0 else {
-             print("Warning: Attempted to resize an image with zero dimensions.")
-             return image // Return original if invalid
-         }
-
-        // Determine if resize is needed
-        guard max(originalSize.width, originalSize.height) > maxDimension else {
-            print("ImageProcessor (Core Image): Image size (\(originalSize)) is within limit (\(maxDimension)), no resize needed.")
-            return image // No resize needed, return original UIImage
-        }
-
-        // Calculate scale
-        let scale = maxDimension / max(originalSize.width, originalSize.height)
-
-        // Apply Lanczos scale transform filter
-        guard let resizeFilter = CIFilter(name: "CILanczosScaleTransform") else {
-            print("ImageProcessor (Core Image): Error: CILanczosScaleTransform filter could not be created.")
-            throw PreprocessingError.resizeFailed // Or a more specific error like .filterCreationFailed if defined
-        }
-        resizeFilter.setValue(originalCIImage, forKey: kCIInputImageKey)
-        resizeFilter.setValue(Float(scale), forKey: kCIInputScaleKey)
-        resizeFilter.setValue(1.0, forKey: kCIInputAspectRatioKey) // Preserve aspect ratio
-
-        guard let resizedCIImage = resizeFilter.outputImage else {
-            print("ImageProcessor (Core Image): Warning: Resize filter failed to produce output.")
-            throw PreprocessingError.resizeFailed
-        }
-
-        // Convert resized CIImage back to CGImage, then UIImage
-        guard let resizedCGImage = ciContext.createCGImage(resizedCIImage, from: resizedCIImage.extent) else {
-             print("ImageProcessor (Core Image): Failed to create CGImage from resized CIImage.")
-             throw PreprocessingError.resizeFailed // Or a more specific error
-         }
-
-        let finalUIImage = UIImage(cgImage: resizedCGImage)
-        print("ImageProcessor (Core Image): Resized image from \(originalSize) to \(finalUIImage.size)")
-        return finalUIImage
-    }
 
     // Convert UIImage to HEIC Data
     func encodeToHEICData(_ image: UIImage, compressionQuality: CGFloat = 0.7) throws -> Data {

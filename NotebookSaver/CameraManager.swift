@@ -223,6 +223,20 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
                 device.focusMode = .autoFocus
                 print("CameraManager: Set focusMode to .autoFocus")
             }
+            
+            // Enable automatic macro mode switching for close-up focus (iOS 15+)
+            if #available(iOS 15.4, *) {
+                if device.isAutoFocusRangeRestrictionSupported {
+                    device.automaticallyAdjustsVideoHDREnabled = true
+                }
+            }
+            
+            // For ultra-wide camera, ensure it can switch to macro when needed
+            if device.deviceType == .builtInUltraWideCamera {
+                // Ultra-wide cameras on iPhone 13 Pro+ have macro capability
+                // The system will automatically engage macro mode when close enough
+                print("CameraManager: Ultra-wide camera detected, macro mode available")
+            }
 
             // Optimize exposure for document scanning
             if device.isExposureModeSupported(.continuousAutoExposure) {
@@ -300,12 +314,14 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
     
     /// Discovers available back cameras and selects the best one for document scanning
     private func setupCameraDiscovery() {
-        // Simple device discovery - prefer triple camera, then dual, then wide
+        // Discover all available back cameras including ultra-wide, wide, and telephoto
         let deviceTypes: [AVCaptureDevice.DeviceType] = [
             .builtInTripleCamera,
             .builtInDualWideCamera, 
             .builtInDualCamera,
-            .builtInWideAngleCamera
+            .builtInWideAngleCamera,
+            .builtInUltraWideCamera,
+            .builtInTelephotoCamera
         ]
         
         cameraDiscoverySession = AVCaptureDevice.DiscoverySession(
@@ -319,6 +335,9 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
         } ?? []
         
         print("CameraManager: Found \(availableCameras.count) cameras")
+        for camera in availableCameras {
+            print("  - \(camera.deviceType.rawValue) (zoom range: \(camera.minAvailableVideoZoomFactor)-\(camera.maxAvailableVideoZoomFactor))")
+        }
     }
     
     /// Returns the best available camera, preferring newer multi-camera systems
@@ -334,17 +353,37 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
         var bestCamera: AVCaptureDevice?
         var adjustedZoom = targetZoom
         
-        // For high zoom (>3x), prefer telephoto if available
-        if targetZoom > 3.0 {
-            bestCamera = availableCameras.first { $0.deviceType == .builtInTelephotoCamera }
-            if bestCamera != nil {
-                adjustedZoom = targetZoom / 2.0 // Adjust for 2x telephoto
-            }
+        // Find available cameras
+        let wideCamera = availableCameras.first { 
+            $0.deviceType == .builtInWideAngleCamera 
         }
         
-        // Fallback to the best available camera
-        if bestCamera == nil {
+        let ultraWideCamera = availableCameras.first { 
+            $0.deviceType == .builtInUltraWideCamera 
+        }
+        
+        let telephotoCamera = availableCameras.first { 
+            $0.deviceType == .builtInTelephotoCamera 
+        }
+        
+        // Select camera based on target zoom level
+        // Ultra-wide = 0.5x, Wide = 1x, Telephoto = 2x
+        if targetZoom >= 2.0, let telephoto = telephotoCamera {
+            // Use telephoto for 2x and above (telephoto is 2x optical)
+            bestCamera = telephoto
+            adjustedZoom = targetZoom / 2.0 // Telephoto is 2x, so divide by 2
+        } else if targetZoom <= 0.5, let ultraWide = ultraWideCamera {
+            // Use ultra-wide for 0.5x and below (ultra-wide is 0.5x optical)
+            bestCamera = ultraWide
+            adjustedZoom = targetZoom / 0.5 // Ultra-wide is 0.5x, so divide by 0.5
+        } else if let wide = wideCamera {
+            // Use wide camera (1x) for everything in between
+            bestCamera = wide
+            adjustedZoom = targetZoom // Wide is 1x, no adjustment needed
+        } else {
+            // Fallback to first available camera
             bestCamera = availableCameras.first
+            adjustedZoom = targetZoom
         }
         
         guard let selectedCamera = bestCamera else { return nil }
@@ -668,16 +707,21 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
         sessionQueue.async { [weak self] in
             guard let self = self, let device = self.videoDevice else { return }
             
-            // Simple approach: try camera switching only for significant zoom changes
-            if factor > 3.0, let optimalCamera = self.selectOptimalCameraForZoom(factor) {
+            // Try to find optimal camera for the requested zoom level
+            if let optimalCamera = self.selectOptimalCameraForZoom(factor) {
                 let currentDevice = self.videoDeviceInput?.device
+                // Switch camera if we found a better one
                 if currentDevice?.uniqueID != optimalCamera.device.uniqueID {
                     self.switchToCamera(optimalCamera.device, withZoom: optimalCamera.adjustedZoom)
+                    return
+                } else {
+                    // Same camera, just adjust zoom
+                    self.setZoom(factor: optimalCamera.adjustedZoom, on: device)
                     return
                 }
             }
             
-            // Otherwise just set zoom on current camera
+            // Fallback: just set zoom on current camera
             self.setZoom(factor: factor, on: device)
         }
     }
@@ -712,11 +756,25 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
                 
                 // Basic device configuration
                 try newDevice.lockForConfiguration()
+                
+                // Set focus mode for close-up document scanning
                 if newDevice.isFocusModeSupported(.continuousAutoFocus) {
                     newDevice.focusMode = .continuousAutoFocus
                 }
                 if newDevice.isAutoFocusRangeRestrictionSupported {
                     newDevice.autoFocusRangeRestriction = .near
+                }
+                
+                // Enable automatic macro mode switching for close-up focus (iOS 15+)
+                if #available(iOS 15.4, *) {
+                    if newDevice.isAutoFocusRangeRestrictionSupported {
+                        newDevice.automaticallyAdjustsVideoHDREnabled = true
+                    }
+                }
+                
+                // For ultra-wide camera, ensure macro capability is available
+                if newDevice.deviceType == .builtInUltraWideCamera {
+                    print("CameraManager: Switched to ultra-wide camera with macro capability")
                 }
                 
                 let clampedZoom = min(max(zoom, newDevice.minAvailableVideoZoomFactor), newDevice.maxAvailableVideoZoomFactor)

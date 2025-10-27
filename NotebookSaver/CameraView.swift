@@ -4,6 +4,7 @@ import UIKit // For UIKit components like UIImpactFeedbackGenerator, UIApplicati
 
 struct CameraView: View {
     @EnvironmentObject private var cameraManager: CameraManager
+    @EnvironmentObject private var appState: AppStateManager
     @Binding var isShowingSettings: Bool
     
     @State private var isLoading: Bool = false
@@ -11,10 +12,7 @@ struct CameraView: View {
     @State private var showErrorAlert = false
     @State private var currentQuote: (quote: String, author: String)?
 
-    private func isDraftsAppInstalled() -> Bool {
-        guard let draftsURL = URL(string: "drafts://") else { return false }
-        return UIApplication.shared.canOpenURL(draftsURL)
-    }
+
 
     var body: some View {
         GeometryReader { geometry in
@@ -64,8 +62,10 @@ struct CameraView: View {
         }
         .setupCameraView(
             cameraManager: cameraManager,
+            appState: appState,
             errorMessage: $errorMessage,
-            showErrorAlert: $showErrorAlert
+            showErrorAlert: $showErrorAlert,
+            processOpenedImage: processOpenedImage
         )
         .dismissKeyboardOnTap()
     }
@@ -138,40 +138,39 @@ struct LoadingOverlay: View {
     let currentQuote: (quote: String, author: String)?
     
     var body: some View {
-        // Liquid Glass effect for loading overlay
         ZStack {
-            Color.black.opacity(0.4)
+            // Blurred camera preview overlay
+            Color.black.opacity(0.5)
             Rectangle()
-                .fill(.thinMaterial)
-        }
-        VStack(spacing: 20) {
-            if let quote = currentQuote {
-                VStack(spacing: 16) {
-                    Text(quote.quote)
-                        .font(.custom("Baskerville", size: 26))
-                        .multilineTextAlignment(.center)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 30)
-                        .frame(maxWidth: .infinity)
+                .fill(.ultraThinMaterial)
+            
+            // Quote overlay
+            VStack(spacing: 20) {
+                if let quote = currentQuote {
+                    VStack(spacing: 16) {
+                        Text(quote.quote)
+                            .font(.custom("Baskerville", size: 26))
+                            .multilineTextAlignment(.center)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 30)
+                            .frame(maxWidth: .infinity)
 
-                    Text("— \(quote.author)")
-                        .font(.custom("Baskerville", size: 20))
-                        .italic()
-                        .foregroundColor(.white.opacity(0.8))
-                        .padding(.top, 8)
+                        Text("— \(quote.author)")
+                            .font(.custom("Baskerville", size: 20))
+                            .italic()
+                            .foregroundColor(.white.opacity(0.8))
+                            .padding(.top, 8)
+                    }
+                    .padding(.vertical, 30)
+                    .padding(.horizontal, 20)
+                } else {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        .scaleEffect(1.5)
                 }
-                .padding(.vertical, 30)
-
-                ProgressView()
-                    .progressViewStyle(CircularProgressViewStyle(tint: .white.opacity(0.6)))
-                    .scaleEffect(0.8)
-            } else {
-                ProgressView()
-                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                    .scaleEffect(1.5)
             }
+            .padding(30)
         }
-        .padding(30)
     }
 }
 
@@ -266,8 +265,10 @@ struct SettingsToggleButton: View {
 extension View {
     func setupCameraView(
         cameraManager: CameraManager,
+        appState: AppStateManager,
         errorMessage: Binding<String?>,
-        showErrorAlert: Binding<Bool>
+        showErrorAlert: Binding<Bool>,
+        processOpenedImage: @escaping (URL) async -> Void
     ) -> some View {
         self
             .alert("Error", isPresented: showErrorAlert, presenting: errorMessage.wrappedValue) { _ in
@@ -302,6 +303,12 @@ extension View {
                     cameraManager.startSession()
                 }
             }
+            .onChange(of: appState.imageToProcess) { _, newURL in
+                guard let url = newURL else { return }
+                Task {
+                    await processOpenedImage(url)
+                }
+            }
     }
 }
 
@@ -325,6 +332,98 @@ extension CameraView {
             Task {
                 await handlePhotoCapture(result: result, sessionId: sessionId)
             }
+        }
+    }
+    
+    private func processOpenedImage(url: URL) async {
+        print("📎 Processing opened URL: \(url)")
+        print("📎 URL scheme: \(url.scheme ?? "none"), isFileURL: \(url.isFileURL)")
+        
+        // Check if this is just a deep link to open the app (not an actual file)
+        if url.scheme == "notebooksaver" || !url.isFileURL {
+            print("📎 URL is a deep link to open the app, not a file. Ignoring.")
+            appState.clearOpenedImage()
+            return
+        }
+        
+        // Request access to security-scoped resource if needed
+        // Note: Not all URLs require this (e.g., Photos app URLs), so we don't fail if it returns false
+        let needsSecurityScope = url.startAccessingSecurityScopedResource()
+        defer {
+            if needsSecurityScope {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        
+        print("📎 Processing image file from URL: \(url.lastPathComponent)")
+        print("📎 Security-scoped access: \(needsSecurityScope)")
+        
+        do {
+            // Load image data from URL
+            let imageData: Data
+            do {
+                imageData = try Data(contentsOf: url)
+            } catch let error as NSError {
+                // Handle specific file read errors
+                if error.domain == NSCocoaErrorDomain {
+                    switch error.code {
+                    case NSFileReadNoPermissionError:
+                        await handleError("Permission denied. Cannot read the selected image file.")
+                    case NSFileReadNoSuchFileError:
+                        await handleError("The selected image file no longer exists.")
+                    case NSFileReadCorruptFileError:
+                        await handleError("The selected image file is corrupted or unreadable.")
+                    default:
+                        await handleError("Failed to read image file: \(error.localizedDescription)")
+                    }
+                } else {
+                    await handleError("Failed to read image file: \(error.localizedDescription)")
+                }
+                appState.clearOpenedImage()
+                return
+            }
+            
+            // Validate image data is not empty
+            guard !imageData.isEmpty else {
+                await handleError("The selected image file is empty.")
+                appState.clearOpenedImage()
+                return
+            }
+            
+            // Validate it's a valid image format
+            guard let validatedImage = UIImage(data: imageData) else {
+                await handleError("Invalid image format. Please select a JPEG, PNG, or HEIC image.")
+                appState.clearOpenedImage()
+                return
+            }
+            
+            // Additional validation: check image has valid dimensions
+            guard validatedImage.size.width > 0 && validatedImage.size.height > 0 else {
+                await handleError("Invalid image dimensions. The image appears to be corrupted.")
+                appState.clearOpenedImage()
+                return
+            }
+            
+            print("Successfully loaded image from URL: \(url.lastPathComponent)")
+            print("Image size: \(imageData.count) bytes, dimensions: \(validatedImage.size.width)x\(validatedImage.size.height)")
+            
+            // Show loading overlay with quotes
+            await MainActor.run {
+                isLoading = true
+                currentQuote = notebookQuotes.randomElement()
+            }
+            
+            // Start performance logging
+            let sessionId = PerformanceLogger.shared.startSession()
+            
+            // Reuse existing pipeline
+            await handlePhotoCapture(
+                result: .success(imageData),
+                sessionId: sessionId
+            )
+            
+            // Clear state after successful processing
+            appState.clearOpenedImage()
         }
     }
     
@@ -359,7 +458,7 @@ extension CameraView {
 
             // 5. Single state update at the end - eliminates multiple MainActor calls
             await MainActor.run { 
-                isLoading = false 
+                isLoading = false
                 print("Processing pipeline completed successfully")
             }
 
@@ -461,7 +560,6 @@ extension CameraView {
             let addDraftTagEnabled = UserDefaults.standard.bool(forKey: "addDraftTagEnabled")
             print("Using draftsTag: \(draftsTag), addDraftTagEnabled: \(addDraftTagEnabled)")
 
-            // Include photo link in text if available and enabled in settings
             let finalText = text
             
             var tagsToSend = [String]()
@@ -478,26 +576,19 @@ extension CameraView {
             } else {
                 print("Drafts app is not installed. Presenting share sheet.")
                 try await presentShareSheet(text: finalText, sessionId: sessionId)
-                print("Share sheet presented (or attempted).")
             }
         }
     }
     
-    private func sendToDraftsApp(text: String, tags: String, sessionId: UUID) async throws {
-        print("Calling Drafts Helper with text: \(text.prefix(50))... and tags: \(tags)")
-        let _ = try await DraftsHelper.createDraftAsync(with: text, tag: tags, sessionId: sessionId)
-        print("Drafts Helper call succeeded.")
+    private func isDraftsAppInstalled() -> Bool {
+        guard let draftsURL = URL(string: "drafts://") else { return false }
+        return UIApplication.shared.canOpenURL(draftsURL)
     }
     
-    private func handleError(_ message: String) async {
-        await MainActor.run {
-            self.errorMessage = message
-            self.showErrorAlert = true
-            self.isLoading = false
-            playSoftClickSound()
-        }
+    private func sendToDraftsApp(text: String, tags: String, sessionId: UUID) async throws {
+        _ = try await DraftsHelper.createDraftAsync(with: text, tag: tags, sessionId: sessionId)
     }
-
+    
     private func presentShareSheet(text: String, sessionId: UUID) async throws {
         try await PerformanceLogger.shared.measureVoidOperation(
             "Share Sheet Presentation",
@@ -528,6 +619,17 @@ extension CameraView {
             }
         }
     }
+    
+    private func handleError(_ message: String) async {
+        await MainActor.run {
+            self.errorMessage = message
+            self.showErrorAlert = true
+            self.isLoading = false
+            playSoftClickSound()
+        }
+    }
+
+
 
     private func playShutterSound() {
         AudioServicesPlaySystemSound(1108)
@@ -583,17 +685,17 @@ struct CaptureButtonView: View {
     }
 }
 
-// Legacy safe area helpers removed in favor of SwiftUI-native geometry safe area insets
-
 // MARK: - Preview
 #Preview {
     struct PreviewWrapper: View {
         @State var showSettings = false
         @StateObject private var previewCameraManager = CameraManager(setupOnInit: true)
+        @StateObject private var previewAppState = AppStateManager()
         
         var body: some View {
             CameraView(isShowingSettings: $showSettings)
                 .environmentObject(previewCameraManager)
+                .environmentObject(previewAppState)
         }
     }
     return PreviewWrapper()

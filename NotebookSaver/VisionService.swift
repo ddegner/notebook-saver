@@ -26,17 +26,11 @@ enum VisionError: LocalizedError {
 
 class VisionService: ImageTextExtractor {
 
-    // Removed reference to ImagePreprocessor as we'll handle UIImage/CGImage directly
-    // private let imagePreprocessor = ImageProcessor()
-
     // Define keys for UserDefaults access (matching SettingsView)
     private enum StorageKeys {
         static let visionRecognitionLevel = "visionRecognitionLevel"
         static let visionUsesLanguageCorrection = "visionUsesLanguageCorrection"
     }
-
-    // Reuse CIContext for efficiency, similar to GeminiService - Removed, context is in ImagePreprocessor
-    // private let ciContext = CIContext()
 
     func extractText(from imageData: Data, sessionId: UUID? = nil) async throws -> String {
         // Create UIImage from data and delegate to optimized method

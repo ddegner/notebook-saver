@@ -71,25 +71,18 @@ class DraftsHelper {
         return try await _createDraftAsyncInternal(with: text, tag: tag)
     }
     
-    /// Internal implementation of createDraftAsync without performance logging
     private static func _createDraftAsyncInternal(with text: String, tag: String? = nil) async throws -> Bool {
-        // Check if Drafts is installed
         try await checkDraftsInstalledAsync()
         
-        // Check if we're in background - if so, store for later
         let appState = await MainActor.run {
             UIApplication.shared.applicationState
         }
         
-        print("DraftsHelper: Current app state: \(appState.rawValue) (0=active, 1=inactive, 2=background)")
-        
         if appState != .active {
-            print("DraftsHelper: App is not active (state: \(appState)), storing draft for later creation")
             storePendingDraft(text: text, tag: tag)
-            return true // Return true since we've stored it successfully
+            return true
         }
         
-        // Build and open URL
         let url = try await buildDraftsURLAsync(text: text, tag: tag)
         
         return await withCheckedContinuation { continuation in
@@ -137,18 +130,15 @@ class DraftsHelper {
         components.scheme = scheme
         components.host = createAction
         
-        // Add required and optional parameters
         var queryItems = [URLQueryItem(name: "text", value: text)]
         
         if let tag = tag, !tag.isEmpty {
             queryItems.append(URLQueryItem(name: "tag", value: tag))
-            print("Adding tag(s) to URL query: \(tag)")
         }
         
         components.queryItems = queryItems
         
         guard let url = components.url else {
-            print("Error: Failed to create URL using URLComponents.")
             throw DraftsError.invalidURL
         }
         
@@ -162,18 +152,15 @@ class DraftsHelper {
             components.scheme = scheme
             components.host = createAction
             
-            // Add required and optional parameters
             var queryItems = [URLQueryItem(name: "text", value: text)]
             
             if let tag = tag, !tag.isEmpty {
                 queryItems.append(URLQueryItem(name: "tag", value: tag))
-                print("Adding tag(s) to URL query: \(tag)")
             }
             
             components.queryItems = queryItems
             
             guard let url = components.url else {
-                print("Error: Failed to create URL using URLComponents.")
                 throw DraftsError.invalidURL
             }
             
@@ -193,8 +180,7 @@ class DraftsHelper {
         do {
             let data = try JSONEncoder().encode(pendingDrafts)
             UserDefaults.standard.set(data, forKey: pendingDraftsKey)
-            UserDefaults.standard.synchronize() // Force immediate save
-            print("DraftsHelper: Stored pending draft with \(text.count) characters, total pending: \(pendingDrafts.count)")
+            UserDefaults.standard.synchronize()
         } catch {
             print("DraftsHelper: Failed to store pending draft: \(error)")
         }
@@ -223,44 +209,33 @@ class DraftsHelper {
             return
         }
         
-        // Check if Drafts is still installed before trying to create drafts
         do {
             try checkDraftsInstalled()
         } catch {
-            print("DraftsHelper: Drafts app not available, keeping \(pendingDrafts.count) pending drafts")
             return
         }
         
-        print("DraftsHelper: Creating \(pendingDrafts.count) pending drafts")
-        
-        // Start a performance logging session for pending drafts creation
         let sessionId = PerformanceLogger.shared.startSession()
         
         for draft in pendingDrafts {
             do {
-                try await Task.sleep(nanoseconds: 500_000_000) // 0.5 second delay between drafts
+                try await Task.sleep(nanoseconds: 500_000_000)
                 try await PerformanceLogger.shared.measureVoidOperation(
                     "Create Pending Draft",
                     sessionId: sessionId
                 ) {
                     try createDraft(with: draft.text, tag: draft.tag)
                 }
-                print("DraftsHelper: Successfully created pending draft from \(draft.timestamp)")
             } catch {
-                print("DraftsHelper: Failed to create pending draft: \(error)")
-                // If Drafts is not installed, we should stop trying and keep the pending drafts
                 if error is DraftsError {
-                    print("DraftsHelper: Drafts app issue detected, keeping remaining pending drafts")
                     PerformanceLogger.shared.cancelSession(sessionId)
                     return
                 }
             }
         }
         
-        // Clear pending drafts after creation
         UserDefaults.standard.removeObject(forKey: pendingDraftsKey)
         PerformanceLogger.shared.endSession(sessionId)
-        print("DraftsHelper: Cleared all pending drafts")
     }
     
     /// Get count of pending drafts

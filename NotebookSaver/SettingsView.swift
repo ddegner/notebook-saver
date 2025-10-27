@@ -77,7 +77,7 @@ struct SettingsView: View {
     }
 
     // === Persisted Settings ===
-    @AppStorage(StorageKeys.selectedModelId) private var selectedModelId: String = "gemini-2.5-flash"
+    @AppStorage(StorageKeys.selectedModelId) private var selectedModelId: String = "gemini-2.5-flash-lite"
     @AppStorage(StorageKeys.userPrompt) private var userPrompt: String = """
         Output the text from the image as text. Start immediately with the first word. Format for clarity, format blocks of text into paragraphs, and use markdown sparingly where useful. Usually sentences and paragraphs will make sense. Do not include an intro like: "Here is the text extracted from the image:"
         """
@@ -332,6 +332,7 @@ struct SettingsView: View {
                     Spacer()
 
                     Picker("Default Zoom", selection: $defaultZoomFactor) {
+                        Text("0.5×").tag(0.5)
                         Text("1×").tag(1.0)
                         Text("1.5×").tag(1.5)
                         Text("2×").tag(2.0)
@@ -1056,7 +1057,7 @@ struct SettingsView: View {
 
     // Reset settings to defaults
     private func resetToDefaults() {
-        selectedModelId = "gemini-2.5-flash"
+        selectedModelId = "gemini-2.5-flash-lite"
         apiEndpointUrlString = "https://generativelanguage.googleapis.com/v1beta/models/"
         draftsTag = "notebook"
         photoFolderName = "notebook" // Updated from savePhotosToAlbum
@@ -1090,8 +1091,13 @@ struct SettingsView: View {
     
     // Function to initialize available models
     private func initializeModels() {
-        // Load cached models
+        // Load cached models first
         loadInitialModels()
+        
+        // If this is the first launch and we have an API key, fetch models immediately
+        if modelService.shouldFetchModels && !apiKey.isEmpty {
+            refreshModels()
+        }
     }
     
     private func loadInitialModels() {
