@@ -97,31 +97,13 @@ struct CameraPreviewArea: View {
             ZStack {
             CameraPreview(
                 session: cameraManager.session,
-                isSessionReady: cameraManager.isSetupComplete && cameraManager.isAuthorized,
-                onPinchZoom: { scale in
-                    cameraManager.updateZoom(scale: scale)
-                }
+                isSessionReady: cameraManager.isSetupComplete && cameraManager.isAuthorized
             )
             .frame(width: screenWidth, height: cameraHeight)
             .clipped() // Ensure camera preview doesn't overflow
             .background(Color.black)
             .onDisappear {
                 cameraManager.stopSession()
-            }
-            
-            // Zoom indicator overlay
-            VStack {
-                HStack {
-                    Spacer()
-                    ZoomIndicator(
-                        currentZoom: cameraManager.currentZoomFactor,
-                        minZoom: cameraManager.minZoomFactor,
-                        maxZoom: cameraManager.maxZoomFactor
-                    )
-                    .padding(.top, 20)
-                    .padding(.trailing, 20)
-                }
-                Spacer()
             }
             
             if isLoading {
@@ -204,43 +186,7 @@ struct ControlsArea: View {
     }
 }
 
-// MARK: - Simplified Zoom Indicator
-struct ZoomIndicator: View {
-    let currentZoom: CGFloat
-    let minZoom: CGFloat
-    let maxZoom: CGFloat
-    @State private var showIndicator = false
-    
-    var body: some View {
-        if showIndicator && currentZoom > 1.1 {
-            Text(String(format: "%.1fx", currentZoom))
-                .font(.system(size: 14, weight: .medium, design: .monospaced))
-                .foregroundColor(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.black.opacity(0.7))
-                )
-                .transition(.opacity)
-                .onChange(of: currentZoom) { _, _ in
-                    showIndicatorTemporarily()
-                }
-        }
-    }
-    
-    private func showIndicatorTemporarily() {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            showIndicator = true
-        }
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            withAnimation(.easeInOut(duration: 0.3)) {
-                showIndicator = false
-            }
-        }
-    }
-}
+
 
 // MARK: - Settings Toggle Component
 struct SettingsToggleButton: View {

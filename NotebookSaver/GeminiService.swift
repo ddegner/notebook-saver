@@ -152,8 +152,8 @@ class GeminiService: ImageTextExtractor {
     private static let defaultApiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/"
     private let defaultDraftsTag = "notebook"
 
-    private let targetImageWidth: CGFloat = 1365.0 // Target width for Gemini uploads
-    private let targetImageHeight: CGFloat = 1536.0 // Target height for Gemini uploads
+    private let targetImageWidth: CGFloat = 2048.0 // Target width for Gemini uploads (4:3 aspect ratio)
+    private let targetImageHeight: CGFloat = 2304.0 // Target height for Gemini uploads (long side)
     
     // Retry configuration
     private let maxRetryAttempts = 2 // Reduced from 3 for faster failure detection
@@ -317,11 +317,15 @@ class GeminiService: ImageTextExtractor {
         }
         
         // Create image metadata for performance logging
+        // Get actual pixel dimensions from CGImage, not logical UIImage size
+        let processedPixelWidth = resizedUIImage.cgImage?.width ?? Int(resizedUIImage.size.width * resizedUIImage.scale)
+        let processedPixelHeight = resizedUIImage.cgImage?.height ?? Int(resizedUIImage.size.height * resizedUIImage.scale)
+        
         let imageMetadata = ImageMetadata(
             originalWidth: originalSize.width,
             originalHeight: originalSize.height,
-            processedWidth: resizedUIImage.size.width,
-            processedHeight: resizedUIImage.size.height,
+            processedWidth: CGFloat(processedPixelWidth),
+            processedHeight: CGFloat(processedPixelHeight),
             originalFileSizeBytes: originalFileSizeBytes,
             processedFileSizeBytes: preparedImageData.count,
             compressionQuality: heicQuality,

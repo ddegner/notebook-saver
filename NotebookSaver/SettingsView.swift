@@ -72,8 +72,6 @@ struct SettingsView: View {
         static let visionUsesLanguageCorrection = "visionUsesLanguageCorrection"
         // AI thinking toggle
         static let thinkingEnabled = "thinkingEnabled"
-        // Camera settings
-        static let defaultZoomFactor = "defaultZoomFactor"
     }
 
     // === Persisted Settings ===
@@ -93,8 +91,6 @@ struct SettingsView: View {
     @AppStorage(StorageKeys.thinkingEnabled) private var thinkingEnabled: Bool = false // Default to false (thinking off)
     // Text extraction service selection
     @AppStorage("textExtractorService") private var textExtractorService: String = AppDefaults.textExtractorService
-    // Camera settings
-    @AppStorage(StorageKeys.defaultZoomFactor) private var defaultZoomFactor: Double = AppDefaults.defaultZoomFactor
 
     // === State for API Key (using Keychain) ===
     @State private var apiKey: String = ""
@@ -323,29 +319,6 @@ struct SettingsView: View {
                     // Add top padding to prevent content from being cut off by camera
                     Spacer()
                         .frame(height: 20)
-                // Default Zoom - horizontal layout
-                HStack(spacing: 16) {
-                    Text("Default Zoom")
-                        .font(.headline)
-                        .foregroundColor(Color.orangeTabbyText.opacity(0.7))
-
-                    Spacer()
-
-                    Picker("Default Zoom", selection: $defaultZoomFactor) {
-                        Text("0.5×").tag(0.5)
-                        Text("1×").tag(1.0)
-                        Text("1.5×").tag(1.5)
-                        Text("2×").tag(2.0)
-                        Text("3×").tag(3.0)
-                        Text("4×").tag(4.0)
-                    }
-                    .pickerStyle(.menu)
-                    .tint(Color.orangeTabbyAccent)
-                    .labelsHidden()
-                    .onChange(of: defaultZoomFactor) { _, newValue in
-                        cameraManager.setZoomFactor(CGFloat(newValue))
-                    }
-                }
                 // Add tag to draft toggle - horizontal layout
                 HStack(spacing: 16) {
                     Text("Add Tag To Draft")
@@ -1068,8 +1041,6 @@ struct SettingsView: View {
         visionUsesLanguageCorrection = true
         // Reset AI thinking setting
         thinkingEnabled = false
-        // Reset camera settings
-        defaultZoomFactor = AppDefaults.defaultZoomFactor
         // Reset prompt to default based on thinking state
         updatePromptForThinking(enabled: thinkingEnabled)
         // Note: API key is not reset as it's sensitive information

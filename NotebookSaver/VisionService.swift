@@ -49,16 +49,19 @@ class VisionService: ImageTextExtractor {
         print("VisionService: Using pre-processed UIImage directly.")
 
         // Capture image metadata for performance logging
-        let imageSize = processedImage.size
         let imageData = processedImage.jpegData(compressionQuality: 1.0) ?? Data()
         let fileSizeBytes = imageData.count
         
+        // Get actual pixel dimensions from CGImage, not logical UIImage size
+        let pixelWidth = cgImage.width
+        let pixelHeight = cgImage.height
+        
         // Create image metadata (Vision uses the processed image directly, so original = processed)
         let imageMetadata = ImageMetadata(
-            originalWidth: imageSize.width,
-            originalHeight: imageSize.height,
-            processedWidth: imageSize.width,
-            processedHeight: imageSize.height,
+            originalWidth: CGFloat(pixelWidth),
+            originalHeight: CGFloat(pixelHeight),
+            processedWidth: CGFloat(pixelWidth),
+            processedHeight: CGFloat(pixelHeight),
             originalFileSizeBytes: fileSizeBytes,
             processedFileSizeBytes: fileSizeBytes,
             compressionQuality: nil, // Vision doesn't compress
