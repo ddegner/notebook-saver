@@ -1041,6 +1041,8 @@ struct SettingsView: View {
         visionUsesLanguageCorrection = true
         // Reset AI thinking setting
         thinkingEnabled = false
+        // Reset text extractor service to default
+        textExtractorService = AppDefaults.textExtractorService
         // Reset prompt to default based on thinking state
         updatePromptForThinking(enabled: thinkingEnabled)
         // Note: API key is not reset as it's sensitive information

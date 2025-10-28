@@ -73,9 +73,6 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
     // Store the completion handler for the capture request
     private var photoCaptureCompletion: ((Result<Data, CameraError>) -> Void)?
 
-    // Reference to the active video device (needed for flash check)
-    private var videoDevice: AVCaptureDevice? { videoDeviceInput?.device }
-
     // MARK: - Initialization & Setup
     
     init(setupOnInit: Bool = true) {
