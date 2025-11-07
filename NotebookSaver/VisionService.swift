@@ -2,6 +2,8 @@ import Foundation
 import Vision
 import UIKit // For UIImage
 import CoreImage // Needed for preprocessing
+import ImageIO // For CGImagePropertyOrientation
+
 enum VisionError: LocalizedError {
     // case imageConversionFailed // Replaced by PreprocessingError
     case requestHandlerFailed(Error)
@@ -21,6 +23,20 @@ enum VisionError: LocalizedError {
         case .preprocessingError(let error):
             return "Image preprocessing failed: \(error.localizedDescription)"
         }
+    }
+}
+
+private func cgOrientation(from uiOrientation: UIImage.Orientation) -> CGImagePropertyOrientation {
+    switch uiOrientation {
+    case .up: return .up
+    case .down: return .down
+    case .left: return .left
+    case .right: return .right
+    case .upMirrored: return .upMirrored
+    case .downMirrored: return .downMirrored
+    case .leftMirrored: return .leftMirrored
+    case .rightMirrored: return .rightMirrored
+    @unknown default: return .up
     }
 }
 
@@ -108,7 +124,8 @@ class VisionService: ImageTextExtractor {
         )
 
         // 3. Create a Request Handler with the CGImage
-        let requestHandler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        let orientation = cgOrientation(from: processedImage.imageOrientation)
+        let requestHandler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
 
         // 4. Perform the Request Asynchronously
         if let sessionId = sessionId {
@@ -176,3 +193,4 @@ class VisionService: ImageTextExtractor {
         }
     }
 }
+

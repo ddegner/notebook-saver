@@ -156,6 +156,27 @@ struct LoadingOverlay: View {
     }
 }
 
+// MARK: - Chevron pinned to CameraView
+struct CameraChevron: View {
+    @Binding var isShowingSettings: Bool
+
+    var body: some View {
+        Button {
+            // Let the container’s implicit animation handle the slide
+            isShowingSettings.toggle()
+        } label: {
+            Image(systemName: "chevron.up")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundColor(.gray)
+                .frame(width: 44, height: 28)
+                .rotationEffect(.degrees(isShowingSettings ? 180 : 0))
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel(isShowingSettings ? "Hide Settings" : "Show Settings")
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
 // MARK: - Controls Area Component
 struct ControlsArea: View {
     let isLoading: Bool
@@ -165,19 +186,17 @@ struct ControlsArea: View {
     let bottomSafeArea: CGFloat
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Top spacer - takes up space above capture button
-            Spacer()
-            
-            // Capture Button - centered in the middle of available space
-            CaptureButtonView(isPressed: false, action: onCapturePressed)
-                .disabled(isLoading)
-            
-            // Bottom spacer - takes up space below capture button
-            Spacer()
-            
-            // Settings Toggle at bottom with proper safe area handling
-            SettingsToggleButton(isShowingSettings: $isShowingSettings)
+        ZStack(alignment: .bottom) {
+            // Main controls
+            VStack(spacing: 0) {
+                Spacer()
+                CaptureButtonView(isPressed: false, action: onCapturePressed)
+                    .disabled(isLoading)
+                Spacer()
+            }
+
+            // Chevron pinned to bottom
+            CameraChevron(isShowingSettings: $isShowingSettings)
                 .padding(.bottom, max(bottomSafeArea, 20))
         }
         .frame(height: availableHeight)
@@ -187,25 +206,6 @@ struct ControlsArea: View {
 }
 
 
-
-// MARK: - Settings Toggle Component
-struct SettingsToggleButton: View {
-    @Binding var isShowingSettings: Bool
-    
-    var body: some View {
-        Button {
-            // Don't wrap in withAnimation here - let ContentView handle the animation
-            // to keep everything synchronized
-            isShowingSettings.toggle()
-        } label: {
-            Image(systemName: "chevron.up")
-                .font(.system(size: 18, weight: .medium))
-                .foregroundColor(.gray)
-                .frame(width: 44, height: 28)
-                .rotationEffect(.degrees(isShowingSettings ? 180 : 0))
-        }
-    }
-}
 
 // MARK: - View Setup Extension
 extension View {
@@ -258,10 +258,22 @@ extension View {
     }
 }
 
+// Inserted sound enum and helper function for playing system sounds
+enum AppSound: UInt32 {
+    case shutter = 1108
+    case softClick = 1105
+    case positionClick = 1104
+}
+
+@inline(__always)
+func play(_ sound: AppSound) {
+    AudioServicesPlaySystemSound(sound.rawValue)
+}
+
 // MARK: - CameraView Photo Capture Extension
 extension CameraView {
     private func capturePhoto() {
-        playShutterSound()
+        play(.shutter)
         
         let generator = UIImpactFeedbackGenerator(style: .light)
         generator.impactOccurred(intensity: 0.9)
@@ -405,6 +417,9 @@ extension CameraView {
             // 5. Single state update at the end - eliminates multiple MainActor calls
             await MainActor.run { 
                 isLoading = false
+                let notif = UINotificationFeedbackGenerator()
+                notif.prepare()
+                notif.notificationOccurred(.success)
                 print("Processing pipeline completed successfully")
             }
 
@@ -571,22 +586,12 @@ extension CameraView {
             self.errorMessage = message
             self.showErrorAlert = true
             self.isLoading = false
-            playSoftClickSound()
+            let notif = UINotificationFeedbackGenerator()
+            notif.prepare()
+            notif.notificationOccurred(.error)
+            play(.softClick)
         }
     }
-
-
-
-    private func playShutterSound() {
-        AudioServicesPlaySystemSound(1108)
-    }
-
-    private func playSoftClickSound() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            AudioServicesPlaySystemSound(1105)
-        }
-    }
-
 
 }
 
@@ -648,3 +653,5 @@ struct CaptureButtonView: View {
 }
 
 // Intentionally removed unused legacy button styles to keep the codebase lean
+
+

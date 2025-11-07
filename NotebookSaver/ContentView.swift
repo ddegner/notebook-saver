@@ -73,20 +73,14 @@ struct ContentView: View {
             .onChange(of: isShowingSettings) { _, _ in
                 // Haptic feedback and sound when animation completes
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                    let generator = UIImpactFeedbackGenerator(style: .light)
-                    generator.impactOccurred(intensity: 0.7)
-                    playPositionClickSound()
+                    let impact = UIImpactFeedbackGenerator(style: .rigid)
+                    impact.prepare()
+                    impact.impactOccurred(intensity: 1.0)
+                    play(.positionClick)
                 }
             }
         }
         .ignoresSafeArea()
-    }
-    
-    // MARK: - Sound Functions
-    private func playPositionClickSound() {
-        // Play a softer click sound when camera reaches top or bottom position
-        // Using system sound 1104 (softer, more click-like sound)
-        AudioServicesPlaySystemSound(1104)
     }
 }
 

@@ -584,7 +584,8 @@ struct SettingsView: View {
                         .fontWeight(.bold)
                         .foregroundColor(Color.orangeTabbyText)
                     
-                    Text("v1.0.0")
+                    let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-"
+                    Text("v\(version)")
                         .font(.title3)
                         .fontWeight(.medium)
                         .foregroundColor(Color.orangeTabbyText.opacity(0.8))

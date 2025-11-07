@@ -296,26 +296,42 @@ class GeminiService: ImageTextExtractor {
         let originalFileSizeBytes = originalImageData.count
 
         // 1. Prepare Image using the new ImageProcessor workflow
-        let preparedImageData: Data
-        let resizedUIImage: UIImage
-        do {
-            // Use specific target dimensions
-            print("GeminiService: Using target image dimensions: \(targetImageWidth)x\(targetImageHeight)")
+        // Use a consistent long-edge target regardless of orientation
+        // Removed duplicate: let originalSize = originalUIImage.size
+        let originalW = max(originalSize.width, CGFloat(1))
+        let originalH = max(originalSize.height, CGFloat(1))
+        let longEdge = max(targetImageWidth, targetImageHeight) // 2304 by default
 
-            // Resize the UIImage using the Core Image based method
-            resizedUIImage = try imageProcessor.resizeImageToDimensions(originalUIImage, targetWidth: targetImageWidth, targetHeight: targetImageHeight)
-
-            // Encode the resized UIImage to HEIC
-            preparedImageData = try imageProcessor.encodeToHEICData(resizedUIImage, compressionQuality: heicQuality)
-
-        } catch let error as PreprocessingError {
-            // Map PreprocessingError to APIError.preprocessingFailed
-            throw APIError.preprocessingFailed(reason: error.localizedDescription)
-        } catch {
-            // Catch other potential errors during image processing
-            throw APIError.preprocessingFailed(reason: "An unexpected error occurred during image preparation: \(error.localizedDescription)")
+        // Compute orientation-aware target box that preserves aspect ratio
+        let targetW: CGFloat
+        let targetH: CGFloat
+        if originalW >= originalH {
+            // Landscape: long edge maps to width
+            targetW = longEdge
+            targetH = max(CGFloat(1), floor(longEdge * (originalH / originalW)))
+        } else {
+            // Portrait: long edge maps to height
+            targetH = longEdge
+            targetW = max(CGFloat(1), floor(longEdge * (originalW / originalH)))
         }
+
+        print("GeminiService: Using target image long edge: \(Int(longEdge)) -> \(Int(targetW))x\(Int(targetH))")
+
+        // Resize using the computed target box (uniform scaling inside the processor)
+        let resizedUIImage = try imageProcessor.resizeImageToDimensions(originalUIImage, targetWidth: targetW, targetHeight: targetH)
+
+        // Encode the resized UIImage to HEIC
+        let preparedImageData = try imageProcessor.encodeToHEICData(resizedUIImage, compressionQuality: heicQuality)
         
+//        // Old code replaced:
+//        print("GeminiService: Using target image dimensions: \(targetImageWidth)x\(targetImageHeight)")
+//
+//        // Resize the UIImage using the Core Image based method
+//        resizedUIImage = try imageProcessor.resizeImageToDimensions(originalUIImage, targetWidth: targetImageWidth, targetHeight: targetImageHeight)
+//
+//        // Encode the resized UIImage to HEIC
+//        preparedImageData = try imageProcessor.encodeToHEICData(resizedUIImage, compressionQuality: heicQuality)
+
         // Create image metadata for performance logging
         // Get actual pixel dimensions from CGImage, not logical UIImage size
         let processedPixelWidth = resizedUIImage.cgImage?.width ?? Int(resizedUIImage.size.width * resizedUIImage.scale)
@@ -653,3 +669,4 @@ class Reachability {
         return _connection
     }
 }
+

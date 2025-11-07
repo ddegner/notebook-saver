@@ -56,19 +56,17 @@ struct ImageProcessor {
             throw PreprocessingError.resizeFailed
         }
 
-        // Calculate scale factors for both dimensions
-        let scaleX = targetWidth / originalSize.width
-        let scaleY = targetHeight / originalSize.height
-
-        // Apply Lanczos scale transform filter
+        // Calculate uniform scale to fit within the target box while preserving aspect ratio
+        let scale = min(targetWidth / originalSize.width, targetHeight / originalSize.height)
+        // Apply Lanczos scale transform with aspect ratio 1.0 to preserve AR
         guard let resizeFilter = CIFilter(name: "CILanczosScaleTransform") else {
             print("ImageProcessor: Error: CILanczosScaleTransform filter could not be created.")
             throw PreprocessingError.resizeFailed
         }
         
         resizeFilter.setValue(enhancedCIImage, forKey: kCIInputImageKey)
-        resizeFilter.setValue(Float(scaleX), forKey: kCIInputScaleKey)
-        resizeFilter.setValue(Float(scaleY), forKey: kCIInputAspectRatioKey)
+        resizeFilter.setValue(Float(scale), forKey: kCIInputScaleKey)
+        resizeFilter.setValue(1.0, forKey: kCIInputAspectRatioKey)
 
         guard let resizedCIImage = resizeFilter.outputImage else {
             print("ImageProcessor: Warning: Resize filter failed to produce output.")
