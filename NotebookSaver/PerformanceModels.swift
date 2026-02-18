@@ -71,7 +71,6 @@ struct DeviceContext: Codable, Equatable {
     let appVersion: String
     let timestamp: Date
     let memoryPressure: String
-    let batteryLevel: Float
     let thermalState: String
     
     init() {
@@ -80,7 +79,6 @@ struct DeviceContext: Codable, Equatable {
         self.appVersion = Self.getAppVersion()
         self.timestamp = Date()
         self.memoryPressure = Self.getMemoryPressure()
-        self.batteryLevel = Self.getBatteryLevel()
         self.thermalState = Self.getThermalState()
     }
     
@@ -130,13 +128,6 @@ struct DeviceContext: Codable, Equatable {
         return "Unknown"
     }
     
-    private static func getBatteryLevel() -> Float {
-        UIDevice.current.isBatteryMonitoringEnabled = true
-        let level = UIDevice.current.batteryLevel
-        UIDevice.current.isBatteryMonitoringEnabled = false
-        return level >= 0 ? level : -1.0 // -1 indicates unknown
-    }
-    
     private static func getThermalState() -> String {
         switch ProcessInfo.processInfo.thermalState {
         case .nominal:
@@ -177,6 +168,7 @@ struct LogSession: Codable, Identifiable, Equatable {
     let id: UUID
     let startTime: Date
     var endTime: Date?
+    var wasSuccessful: Bool?
     var entries: [LogEntry]
     let deviceContext: DeviceContext
     
@@ -193,6 +185,7 @@ struct LogSession: Codable, Identifiable, Equatable {
         self.id = UUID()
         self.startTime = Date()
         self.endTime = nil
+        self.wasSuccessful = nil
         self.entries = []
         self.deviceContext = deviceContext
     }
@@ -220,3 +213,4 @@ struct StorageMetrics: Codable {
         self.lastCleanupDate = lastCleanupDate
     }
 }
+

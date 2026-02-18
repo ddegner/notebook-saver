@@ -3,9 +3,11 @@
 <plist version="1.0">
 <dict>
     <key>NSCameraUsageDescription</key>
-    <string>NotebookSaver needs camera access to capture pages.</string>
+    <string>Cat Scribe needs camera access to capture images of your notebook pages for text extraction. Your photos are processed locally and only sent to your chosen text extraction service (Gemini API or Apple Vision) with your explicit permission.</string>
     <key>NSPhotoLibraryAddUsageDescription</key>
-    <string>NotebookSaver saves captured photos to your library when enabled in settings.</string>
+    <string>Cat Scribe saves captured notebook photos to your library when the 'Save to Album' setting is enabled. This allows you to keep a permanent record of your notebook pages alongside the extracted text.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Cat Scribe accesses your photo library to save captured notebook images to a dedicated album and to process images you share with the app. Your photos remain private and are only accessed when you explicitly capture or share them.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

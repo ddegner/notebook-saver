@@ -1,6 +1,8 @@
 import SwiftUI
-import UIKit // For UIResponder keyboard notifications
-import Foundation // For NotificationCenter, keep if needed
+import os.log
+
+// Logger for Settings-related actions
+private let settingsLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "NotebookSaver", category: "Settings")
 
 // Enum for Vision Recognition Level
 enum VisionRecognitionLevel: String, CaseIterable, Identifiable {
@@ -52,55 +54,32 @@ extension Color {
 struct SettingsView: View {
     @EnvironmentObject var appState: AppStateManager
     @EnvironmentObject var cameraManager: CameraManager
+    @Environment(\.openURL) private var openURL
     // Tab selection state
     @State private var selectedTab: SettingsTab = .ai
-    
-    // Keyboard handling
-    @State private var keyboardHeight: CGFloat = 0
 
-    // AppStorage keys - good practice to define them
-    private enum StorageKeys {
-        static let selectedModelId = "selectedModelId"
-        static let userPrompt = "userPrompt"
-        static let apiEndpointUrlString = "apiEndpointUrlString"
-        static let draftsTag = "draftsTag"
-        static let photoFolderName = "photoFolderName" // Changed from savePhotosToAlbum
-        static let savePhotosEnabled = "savePhotosEnabled" // New toggle for saving photos
-        static let addDraftTagEnabled = "addDraftTagEnabled" // New toggle for adding draft tags
-        // Vision specific keys
-        static let visionRecognitionLevel = "visionRecognitionLevel"
-        static let visionUsesLanguageCorrection = "visionUsesLanguageCorrection"
-        // AI thinking toggle
-        static let thinkingEnabled = "thinkingEnabled"
-    }
-
-    // === Persisted Settings ===
-    @AppStorage(StorageKeys.selectedModelId) private var selectedModelId: String = "gemini-2.5-flash-lite"
-    @AppStorage(StorageKeys.userPrompt) private var userPrompt: String = """
-        Output the text from the image as text. Start immediately with the first word. Format for clarity, format blocks of text into paragraphs, and use markdown sparingly where useful. Usually sentences and paragraphs will make sense. Do not include an intro like: "Here is the text extracted from the image:"
-        """
-    @AppStorage(StorageKeys.apiEndpointUrlString) private var apiEndpointUrlString: String = "https://generativelanguage.googleapis.com/v1beta/models/"
-    @AppStorage(StorageKeys.draftsTag) private var draftsTag: String = "notebook"
-    @AppStorage(StorageKeys.photoFolderName) private var photoFolderName: String = "notebook" // Changed from savePhotosToAlbum
-    @AppStorage(StorageKeys.savePhotosEnabled) private var savePhotosEnabled: Bool = true // New toggle for saving photos
-    @AppStorage(StorageKeys.addDraftTagEnabled) private var addDraftTagEnabled: Bool = true // New toggle for adding draft tags
+    // === Persisted Settings (using centralized SettingsKey) ===
+    @AppStorage(SettingsKey.selectedModelId) private var selectedModelId: String = "gemini-2.5-flash-lite"
+    @AppStorage(SettingsKey.userPrompt) private var userPrompt: String = GeminiService.defaultPrompt
+    @AppStorage(SettingsKey.apiEndpointUrlString) private var apiEndpointUrlString: String = "https://generativelanguage.googleapis.com/v1beta/models/"
+    @AppStorage(SettingsKey.draftsTag) private var draftsTag: String = "notebook"
+    @AppStorage(SettingsKey.photoFolderName) private var photoFolderName: String = "notebook"
+    @AppStorage(SettingsKey.savePhotosEnabled) private var savePhotosEnabled: Bool = true
+    @AppStorage(SettingsKey.addDraftTagEnabled) private var addDraftTagEnabled: Bool = true
     // Vision specific settings
-    @AppStorage(StorageKeys.visionRecognitionLevel) private var visionRecognitionLevel: VisionRecognitionLevel = .accurate // Default to accurate
-    @AppStorage(StorageKeys.visionUsesLanguageCorrection) private var visionUsesLanguageCorrection: Bool = true // Default to true
+    @AppStorage(SettingsKey.visionRecognitionLevel) private var visionRecognitionLevel: VisionRecognitionLevel = .accurate
+    @AppStorage(SettingsKey.visionUsesLanguageCorrection) private var visionUsesLanguageCorrection: Bool = true
     // AI thinking toggle
-    @AppStorage(StorageKeys.thinkingEnabled) private var thinkingEnabled: Bool = false // Default to false (thinking off)
-    // Text extraction service selection
-    @AppStorage("textExtractorService") private var textExtractorService: String = AppDefaults.textExtractorService
+    @AppStorage(SettingsKey.thinkingEnabled) private var thinkingEnabled: Bool = false
+    @AppStorage(SettingsKey.geminiPhotoTokenBudget) private var geminiPhotoTokenBudget: GeminiPhotoTokenBudget = .high
+    // Text extraction service selection (typed enum)
+    @AppStorage(SettingsKey.textExtractorService) private var textExtractorService: TextExtractorType = .vision
 
     // === State for API Key (using Keychain) ===
     @State private var apiKey: String = ""
     @State private var apiKeyStatusMessage: String = ""
     @State private var showSaveConfirmation = false
 
-    // State for expanded sections
-    @State private var showAdvancedEndpoint = true
-
-    // For custom prompt examples
 
     // State for connection test
     enum ConnectionStatus { case idle, testing, success, failure }
@@ -119,23 +98,6 @@ struct SettingsView: View {
     @FocusState private var isDraftsTagFocused: Bool
     @FocusState private var isPhotoFolderFocused: Bool
     @FocusState private var isApiEndpointFocused: Bool
-
-    // Check if Gemini service is properly configured
-    private var isGeminiConfigured: Bool {
-        return !apiKey.isEmpty && connectionStatus != .failure
-    }
-    
-    // All available models
-    private var displayedModels: [String] {
-        return availableModels
-    }
-
-    // Sample prompts
-    let promptExamples = [
-        "Output the text from the image below as plain text, starting immediately with the first word. Format for clarity, cohesive paragraphs and use markdown when helpful."
-    ]
-
-    @State private var showOnboarding = false
     @State private var showResetConfirmation = false
     @State private var showingPerformanceLogs = false
     
@@ -167,6 +129,10 @@ struct SettingsView: View {
     // Computed property for API URL error state
     private var apiUrlHasError: Bool {
         return apiEndpointUrlString.isEmpty || connectionStatus == .failure
+    }
+
+    private func isGemini3Model(_ model: String) -> Bool {
+        return model.lowercased().hasPrefix("gemini-3")
     }
 
     var body: some View {
@@ -244,13 +210,11 @@ struct SettingsView: View {
             .frame(width: geometry.size.width, height: geometry.size.height - 80) // Subtract 80 to account for top padding in ContentView
         }
         .background(Color.orangeTabbyBackground)
-        .preferredColorScheme(.light)
-        .onAppear {
+        .task {
             loadAPIKey()
             if apiEndpointUrlString.isEmpty {
                 apiEndpointUrlString = "https://generativelanguage.googleapis.com/v1beta/models/"
             }
-            setupKeyboardObservers()
             initializeModels()
             // Initialize prompt to match thinking toggle state on first launch
             initializePromptForThinkingState()
@@ -259,7 +223,6 @@ struct SettingsView: View {
             loadAPIKey()
         }
         .onDisappear {
-            removeKeyboardObservers()
             // Cancel any pending tasks to prevent memory leaks
             saveConfirmationTask?.cancel()
             connectionTestTask?.cancel()
@@ -267,47 +230,7 @@ struct SettingsView: View {
         .dismissKeyboardOnTap()
     }
 
-    // MARK: - Keyboard Handling
-    
-    // Store observer tokens to properly remove them later
-    @State private var keyboardShowObserver: NSObjectProtocol?
-    @State private var keyboardHideObserver: NSObjectProtocol?
-    
-    private func setupKeyboardObservers() {
-        keyboardShowObserver = NotificationCenter.default.addObserver(
-            forName: UIResponder.keyboardWillShowNotification,
-            object: nil,
-            queue: .main
-        ) { notification in
-            if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    // Add a larger buffer to ensure text field is fully visible with extra space
-                    self.keyboardHeight = keyboardFrame.height + 60
-                }
-            }
-        }
-        
-        keyboardHideObserver = NotificationCenter.default.addObserver(
-            forName: UIResponder.keyboardWillHideNotification,
-            object: nil,
-            queue: .main
-        ) { _ in
-            withAnimation(.easeInOut(duration: 0.3)) {
-                self.keyboardHeight = 0
-            }
-        }
-    }
-    
-    private func removeKeyboardObservers() {
-        if let observer = keyboardShowObserver {
-            NotificationCenter.default.removeObserver(observer)
-            keyboardShowObserver = nil
-        }
-        if let observer = keyboardHideObserver {
-            NotificationCenter.default.removeObserver(observer)
-            keyboardHideObserver = nil
-        }
-    }
+    // MARK: - Keyboard Handling (Focus-based)
     
     // MARK: - Tab Views
 
@@ -341,7 +264,8 @@ struct SettingsView: View {
                             .frame(width: 120, alignment: .leading)
                         
                         TextField("Tag name", text: $draftsTag)
-                            .disableAutocorrection(true)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled(true)
                             .focused($isDraftsTagFocused)
                             .onSubmit { isDraftsTagFocused = false }
                             .id("draftsTag")
@@ -350,7 +274,7 @@ struct SettingsView: View {
                                     // Add a small delay to ensure keyboard is shown first
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                         withAnimation(.easeInOut(duration: 0.3)) {
-                                            proxy.scrollTo("draftsTag", anchor: .top)
+                                            proxy.scrollTo("draftsTag", anchor: .center)
                                         }
                                     }
                                 }
@@ -392,7 +316,8 @@ struct SettingsView: View {
                             .frame(width: 120, alignment: .leading)
                         
                         TextField("Album name", text: $photoFolderName)
-                            .disableAutocorrection(true)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled(true)
                             .focused($isPhotoFolderFocused)
                             .onSubmit { isPhotoFolderFocused = false }
                             .id("photoFolder")
@@ -401,7 +326,7 @@ struct SettingsView: View {
                                     // Add a small delay to ensure keyboard is shown first
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                         withAnimation(.easeInOut(duration: 0.3)) {
-                                            proxy.scrollTo("photoFolder", anchor: .top)
+                                            proxy.scrollTo("photoFolder", anchor: .center)
                                         }
                                     }
                                 }
@@ -422,8 +347,8 @@ struct SettingsView: View {
                 }
             }
             .padding()
-            .padding(.bottom, keyboardHeight)
         }
+        .scrollDismissesKeyboard(.interactively)
         .animation(.easeInOut(duration: 0.3), value: addDraftTagEnabled)
         .animation(.easeInOut(duration: 0.3), value: savePhotosEnabled)
         }
@@ -439,9 +364,9 @@ struct SettingsView: View {
                         .frame(height: 20)
                     // Service Selection - using default segmented picker
                     Picker("Text Extraction Service", selection: $textExtractorService) {
-                        ForEach(TextExtractorType.allCases, id: \.rawValue) { service in
-                            Text(service.rawValue)
-                                .tag(service.rawValue)
+                        ForEach(TextExtractorType.allCases) { service in
+                            Text(service.displayName)
+                                .tag(service)
                         }
                     }
                     .pickerStyle(SegmentedPickerStyle())
@@ -449,7 +374,7 @@ struct SettingsView: View {
                     .animation(.easeInOut(duration: 0.2), value: textExtractorService)
                     
                     // Show different content based on selected service
-                    if textExtractorService == TextExtractorType.gemini.rawValue {
+                    if textExtractorService == .gemini {
                         // Cloud (Gemini) settings
                         
                         // AI Instruction Prompt
@@ -478,7 +403,7 @@ struct SettingsView: View {
                                         // Add a small delay to ensure keyboard is shown first
                                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                             withAnimation(.easeInOut(duration: 0.3)) {
-                                                proxy.scrollTo("promptEditor", anchor: .top)
+                                                proxy.scrollTo("promptEditor", anchor: .center)
                                             }
                                         }
                                     }
@@ -511,20 +436,25 @@ struct SettingsView: View {
                     }
                     
                     // Vision settings section - show when Vision is selected
-                    if textExtractorService == TextExtractorType.vision.rawValue {
+                    if textExtractorService == .vision {
                         visionSettingsSection(proxy: proxy)
                     }
                     
                     Spacer(minLength: 40)
                 }
                 .padding()
-                .padding(.bottom, keyboardHeight)
             }
+            .scrollDismissesKeyboard(.interactively)
             .animation(.easeInOut, value: textExtractorService) // Animate changes when Vision section appears/disappears
-        }
-        .onAppear {
-            // Initialize prompt to match thinking toggle state on first launch
-            initializePromptForThinkingState()
+            .refreshable {
+                // Only refresh if not already refreshing and API key is available
+                guard !isRefreshingModels && !apiKey.isEmpty else { return }
+                refreshModels()
+                // Wait for the refresh to complete
+                while isRefreshingModels {
+                    try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+                }
+            }
         }
     }
 
@@ -614,7 +544,7 @@ struct SettingsView: View {
                     
                     Button("Help & Documentation") {
                         if let url = URL(string: "https://www.daviddegner.com/blog/cat-scribe/") {
-                            UIApplication.shared.open(url)
+                            openURL(url)
                         }
                     }
                     .buttonStyle(.borderedProminent)
@@ -622,7 +552,7 @@ struct SettingsView: View {
 
                     Button("Contact Support") {
                         if let url = URL(string: "mailto:David@DavidDegner.com") {
-                            UIApplication.shared.open(url)
+                            openURL(url)
                         }
                     }
                     .buttonStyle(.borderedProminent)
@@ -681,7 +611,7 @@ struct SettingsView: View {
             HStack(spacing: 12) {
                 // Replace ScrollView with Picker dropdown
                 Picker("Select AI Model", selection: $selectedModelId) {
-                    ForEach(displayedModels, id: \.self) { model in
+                    ForEach(availableModels, id: \.self) { model in
                         Text(model)
                             .foregroundColor(Color.black)
                             .tag(model)
@@ -713,9 +643,42 @@ struct SettingsView: View {
                 .buttonStyle(.bordered)
                 .tint(Color.orangeTabbyAccent)
                 .disabled(isRefreshingModels || apiKey.isEmpty)
+                .accessibilityLabel("Refresh Models")
+                .accessibilityHint("Fetches the latest list of available AI models from the API")
             }
-            
+        }
 
+        if isGemini3Model(selectedModelId) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Photo Token Budget")
+                    .font(.headline)
+                    .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+
+                Picker("Photo Token Budget", selection: $geminiPhotoTokenBudget) {
+                    ForEach(GeminiPhotoTokenBudget.allCases) { budget in
+                        Text(budget.displayName)
+                            .foregroundColor(Color.black)
+                            .tag(budget)
+                    }
+                }
+                .pickerStyle(MenuPickerStyle())
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: 46)
+                .padding(.horizontal, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.orangeTabbyLight.opacity(0.7))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.orangeTabbyDark.opacity(0.4), lineWidth: 1)
+                        )
+                )
+                .tint(Color.black)
+
+                Text("Gemini 3 only. Higher budgets improve detail but can increase latency and cost.")
+                    .font(.caption)
+                    .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+            }
         }
         
         // API Key
@@ -741,7 +704,7 @@ struct SettingsView: View {
                             // Add a small delay to ensure keyboard is shown first
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                 withAnimation(.easeInOut(duration: 0.3)) {
-                                    proxy.scrollTo("apiKey", anchor: .top)
+                                    proxy.scrollTo("apiKey", anchor: .center)
                                 }
                             }
                         } else { 
@@ -750,11 +713,13 @@ struct SettingsView: View {
                     }
                     .foregroundColor(Color.orangeTabbyText)
                 Button(action: { saveApiKey() }) {
-                    Image(systemName: "square.and.arrow.down")
+                    Image(systemName: "checkmark.circle.fill")
                 }
                 .buttonStyle(.bordered)
                 .tint(Color.orangeTabbyAccent)
                 .disabled(apiKey.isEmpty)
+                .accessibilityLabel("Save API Key")
+                .accessibilityHint("Saves the API key securely to the keychain")
             }
             
             if !apiKeyStatusMessage.isEmpty {
@@ -777,7 +742,9 @@ struct SettingsView: View {
             
             HStack(spacing: 12) {
                 TextField(apiUrlPlaceholderText, text: $apiEndpointUrlString)
-                    .disableAutocorrection(true)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+                    .keyboardType(.URL)
                     .focused($isApiEndpointFocused)
                     .onSubmit { 
                         isApiEndpointFocused = false
@@ -789,7 +756,7 @@ struct SettingsView: View {
                             // Add a small delay to ensure keyboard is shown first
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                 withAnimation(.easeInOut(duration: 0.3)) {
-                                    proxy.scrollTo("apiEndpoint", anchor: .top)
+                                    proxy.scrollTo("apiEndpoint", anchor: .center)
                                 }
                             }
                         }
@@ -802,11 +769,13 @@ struct SettingsView: View {
                     .layoutPriority(1)
                     .foregroundColor(Color.orangeTabbyText)
                 Button(action: { if connectionStatus != .testing { testConnection() } }) {
-                    Image(systemName: "square.and.arrow.down")
+                    Image(systemName: "network")
                 }
                 .buttonStyle(.bordered)
                 .tint(Color.orangeTabbyAccent)
                 .disabled(apiEndpointUrlString.isEmpty || connectionStatus == .testing)
+                .accessibilityLabel("Test Connection")
+                .accessibilityHint("Tests the connection to the API endpoint")
             }
             
             if !connectionStatusMessage.isEmpty {
@@ -834,10 +803,8 @@ struct SettingsView: View {
             // Description removed
         }
         .padding(.top, 8)
-        .onAppear {
-            visionRecognitionLevel = .accurate
-            visionUsesLanguageCorrection = true
-        }
+        // Note: Removed .onAppear that was incorrectly resetting user settings
+        // @AppStorage properties already persist correctly
     }
     
     @ViewBuilder
@@ -913,7 +880,7 @@ struct SettingsView: View {
     
     // Update prompt based on thinking toggle - now just ensures prompt is clean
     private func updatePromptForThinking(enabled: Bool) {
-        let basePrompt = "Output the text from the image as text. Start immediately with the first word. Format for clarity, format blocks of text into paragraphs, and use markdown sparingly where useful. Usually sentences and paragraphs will make sense. Do not include an intro like: \"Here is the text extracted from the image:\""
+        let basePrompt = GeminiService.defaultPrompt
         
         // Only reset to base prompt if it contains thinking directives or is empty
         // This preserves user customizations while cleaning up old thinking directives
@@ -1042,25 +1009,17 @@ struct SettingsView: View {
         visionUsesLanguageCorrection = true
         // Reset AI thinking setting
         thinkingEnabled = false
+        // Reset Gemini 3 photo token budget setting
+        geminiPhotoTokenBudget = .high
         // Reset text extractor service to default
-        textExtractorService = AppDefaults.textExtractorService
-        // Reset prompt to default based on thinking state
-        updatePromptForThinking(enabled: thinkingEnabled)
+        textExtractorService = .vision
+        // Force reset prompt to the current default prompt
+        userPrompt = GeminiService.defaultPrompt
         // Note: API key is not reset as it's sensitive information
     }
 
     private func showApiKeyOnboarding() {
         appState.presentOnboarding()
-    }
-
-    // Helper to update API key status message
-    private func updateApiKeyStatus() {
-        if apiKey.isEmpty {
-            apiKeyStatusMessage = "API Key not set."
-        } else {
-            // Basic check, could add more validation if needed
-            apiKeyStatusMessage = "API Key loaded."
-        }
     }
     
     // Function to initialize available models
@@ -1088,7 +1047,7 @@ struct SettingsView: View {
         
         isRefreshingModels = true
         modelsRefreshError = nil
-        print("Refreshing models with API key: \(apiKey.prefix(10))...")
+        settingsLogger.info("Refreshing models list (API key present: \(apiKey.isEmpty ? "no" : "yes"))")
         
         Task {
             do {
@@ -1096,25 +1055,25 @@ struct SettingsView: View {
                 await MainActor.run {
                     self.availableModels = stringModels
                     self.isRefreshingModels = false
-                    print("Successfully refreshed \(availableModels.count) models")
+                    settingsLogger.info("Successfully refreshed models list: \(stringModels.count) models available")
                 }
             } catch APIError.authenticationError {
                 await MainActor.run {
                     self.modelsRefreshError = "Authentication failed. Please check your API key in Settings."
                     self.isRefreshingModels = false
-                    print("Authentication failed - invalid API key")
+                    settingsLogger.error("Models refresh failed: authentication error")
                 }
             } catch APIError.missingApiKey {
                 await MainActor.run {
                     self.modelsRefreshError = "API key is missing. Please add it in Settings."
                     self.isRefreshingModels = false
-                    print("Missing API key")
+                    settingsLogger.error("Models refresh failed: missing API key")
                 }
             } catch {
                 await MainActor.run {
                     self.modelsRefreshError = error.localizedDescription
                     self.isRefreshingModels = false
-                    print("Failed to refresh models: \(error)")
+                    settingsLogger.error("Models refresh failed: \(error.localizedDescription)")
                 }
             }
         }
@@ -1127,4 +1086,3 @@ struct SettingsView: View {
         .environmentObject(AppStateManager())
         .environmentObject(CameraManager(setupOnInit: false))
 }
-

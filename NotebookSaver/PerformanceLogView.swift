@@ -374,18 +374,20 @@ struct SessionRowView: View {
     let onTap: () -> Void
     
     private var sessionStatusColor: Color {
-        if session.isCompleted {
-            return .green
-        } else {
-            return .orange
+        if !session.isCompleted { return .orange }
+        switch session.wasSuccessful {
+        case true: return .green
+        case false: return .red
+        case nil: return .orange
         }
     }
     
     private var sessionStatusText: String {
-        if session.isCompleted {
-            return "Completed"
-        } else {
-            return "Incomplete"
+        if !session.isCompleted { return "Incomplete" }
+        switch session.wasSuccessful {
+        case true: return "Completed"
+        case false: return "Failed"
+        case nil: return "Incomplete"
         }
     }
     

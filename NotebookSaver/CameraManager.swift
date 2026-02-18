@@ -1,9 +1,10 @@
 import Foundation
-import AVFoundation
+@preconcurrency import AVFoundation
 import SwiftUI // Needed for UIImage processing
 import Photos // For saving to photo library
 
-class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
+@MainActor
+class CameraManager: NSObject, ObservableObject, @MainActor AVCapturePhotoCaptureDelegate {
 
     @Published var session = AVCaptureSession()
     @Published var isAuthorized = false
@@ -24,7 +25,7 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
 
     private var photoOutput = AVCapturePhotoOutput()
     private var videoDeviceInput: AVCaptureDeviceInput?
-    private var sessionQueue = DispatchQueue(label: "com.example.notebooksaver.sessionQueue")
+    private let sessionQueue = DispatchQueue(label: "com.notebooksaver.camera.session", qos: .userInitiated)
     // Define CameraError enum
     enum CameraError: Error {
         case authorizationDenied
@@ -75,263 +76,247 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
 
     // MARK: - Initialization & Setup
     
-    init(setupOnInit: Bool = true) {
+    nonisolated init(setupOnInit: Bool = true) {
         super.init()
         if setupOnInit {
             // Start permission check and setup immediately on background queue
-            sessionQueue.async { [weak self] in
-                self?.checkPermissionsAndSetup()
+            Task { @MainActor [weak self] in
+                await self?.checkPermissionsAndSetup()
             }
         }
     }
     
     // MARK: - Setup and Permissions
-
-    func checkPermissionsAndSetup() {
-        DispatchQueue.main.async { [weak self] in
-            self?.permissionRequested = true
-        }
+    
+    func checkPermissionsAndSetup() async {
+        self.permissionRequested = true
         
         switch AVCaptureDevice.authorizationStatus(for: .video) {
             case .authorized:
                 // Permission already granted - setup immediately
-                setupSession()
-                DispatchQueue.main.async { [weak self] in
-                    self?.isAuthorized = true
-                    self?.isSetupComplete = true
+                if await setupSession() {
+                    self.isAuthorized = true
+                    self.isSetupComplete = true
                     // Clear any stale error messages when camera becomes ready
-                    self?.errorMessage = nil
+                    self.errorMessage = nil
                     // Auto-start session after state is properly set
-                    self?.startSession()
+                    await self.startSession()
+                } else {
+                    self.isAuthorized = false
+                    self.isSetupComplete = false
                 }
             case .notDetermined:
                 // Request permission
-                AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
-                    if granted {
-                        self?.sessionQueue.async {
-                            self?.setupSession()
-                            DispatchQueue.main.async {
-                                self?.isAuthorized = true
-                                self?.isSetupComplete = true
-                                // Clear any stale error messages when camera becomes ready
-                                self?.errorMessage = nil
-                                // Auto-start session after state is properly set
-                                self?.startSession()
-                            }
-                        }
+                let granted = await AVCaptureDevice.requestAccess(for: .video)
+                if granted {
+                    if await self.setupSession() {
+                        self.isAuthorized = true
+                        self.isSetupComplete = true
+                        // Clear any stale error messages when camera becomes ready
+                        self.errorMessage = nil
+                        // Auto-start session after state is properly set
+                        await self.startSession()
                     } else {
-                        DispatchQueue.main.async {
-                            self?.isAuthorized = false
-                            self?.errorMessage = CameraError.authorizationDenied.localizedDescription
-                        }
-                        print("Camera permission denied.")
+                        self.isAuthorized = false
+                        self.isSetupComplete = false
                     }
+                } else {
+                    self.isAuthorized = false
+                    self.errorMessage = CameraError.authorizationDenied.localizedDescription
+                    print("Camera permission denied.")
                 }
             case .denied, .restricted:
                 // Permission denied or restricted
-                DispatchQueue.main.async { [weak self] in
-                    self?.isAuthorized = false
-                    self?.errorMessage = CameraError.authorizationDenied.localizedDescription
-                }
+                self.isAuthorized = false
+                self.errorMessage = CameraError.authorizationDenied.localizedDescription
                 print("Camera permission was denied or restricted previously.")
             @unknown default:
                 // Handle future cases
-                DispatchQueue.main.async { [weak self] in
-                    self?.isAuthorized = false
-                    self?.errorMessage = "Unknown camera authorization status."
-                }
+                self.isAuthorized = false
+                self.errorMessage = "Unknown camera authorization status."
                 print("Unknown camera authorization status.")
         }
     }
 
-    private func setupSession() {
-         guard !session.isRunning else {
-             print("Session is already running.")
-             return
-         }
-
-        session.beginConfiguration()
-
-        // Set session preset to .photo for high resolution capture
-        session.sessionPreset = .photo
-        print("CameraManager: Using .photo preset for high resolution capture")
-
-        // Try to get a virtual device that supports automatic camera switching (including macro)
-        // This allows the system to automatically switch to ultra-wide for macro when close to subject
-        let device: AVCaptureDevice
+    private func setupSession() async -> Bool {
+        let captureSession = session
+        let captureOutput = photoOutput
         
-        if let dualWideCamera = AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back) {
-            device = dualWideCamera
-            print("CameraManager: Using dual wide camera (supports automatic macro switching)")
-        } else if let tripleCamera = AVCaptureDevice.default(.builtInTripleCamera, for: .video, position: .back) {
-            device = tripleCamera
-            print("CameraManager: Using triple camera (supports automatic macro switching)")
-        } else if let dualCamera = AVCaptureDevice.default(.builtInDualCamera, for: .video, position: .back) {
-            device = dualCamera
-            print("CameraManager: Using dual camera")
-        } else if let wideCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) {
-            device = wideCamera
-            print("CameraManager: Using wide-angle camera (no automatic macro)")
-        } else {
-            print("Error: No back camera device found.")
-            DispatchQueue.main.async {
-                self.errorMessage = CameraError.noDeviceFound.localizedDescription
-            }
-            session.commitConfiguration()
-            return
-        }
-        
-        guard let input = try? AVCaptureDeviceInput(device: device) else {
-            print("Error: Could not create camera input.")
-            DispatchQueue.main.async {
-                self.errorMessage = CameraError.invalidInput.localizedDescription
-            }
-            session.commitConfiguration()
-            return
-        }
-        
-        guard session.canAddInput(input) else {
-            print("Error: Cannot add camera input to session.")
-            DispatchQueue.main.async {
-                self.errorMessage = CameraError.invalidInput.localizedDescription
-            }
-            session.commitConfiguration()
-            return
-        }
-        
-        self.videoDeviceInput = input
-        session.addInput(input)
-
-        // Simplified focus and exposure configuration for faster startup
-        do {
-            try device.lockForConfiguration()
-
-            // Set focus mode - prefer continuous autofocus for responsiveness
-            if device.isFocusModeSupported(.continuousAutoFocus) {
-                device.focusMode = .continuousAutoFocus
-                print("CameraManager: Set focusMode to .continuousAutoFocus")
-            } else if device.isFocusModeSupported(.autoFocus) {
-                device.focusMode = .autoFocus
-                print("CameraManager: Set focusMode to .autoFocus")
-            }
-            
-            // Set focus range restriction to near for close-up document scanning
-            if device.isAutoFocusRangeRestrictionSupported {
-                device.autoFocusRangeRestriction = .near
-                print("CameraManager: Set autoFocusRangeRestriction to .near for close focus")
-            }
-            
-            // Enable automatic macro mode switching on supported devices (iOS 15.4+)
-            // This allows the system to automatically switch to ultra-wide camera for macro
-            if #available(iOS 15.4, *) {
-                if device.isAutoFocusRangeRestrictionSupported {
-                    // When using virtual devices (dual/triple camera), the system can automatically
-                    // switch to the ultra-wide camera for macro photography when close to subject
-                    device.automaticallyAdjustsVideoHDREnabled = true
-                    print("CameraManager: Enabled automatic video HDR (enables macro switching)")
+        let setupResult: (error: CameraError?, input: AVCaptureDeviceInput?, hasFlash: Bool) = await withCheckedContinuation {
+            (continuation: CheckedContinuation<(error: CameraError?, input: AVCaptureDeviceInput?, hasFlash: Bool), Never>) in
+            sessionQueue.async {
+                guard !captureSession.isRunning else {
+                    print("Session is already running.")
+                    continuation.resume(returning: (nil, nil, false))
+                    return
                 }
                 
-                // Check if device supports automatic macro switching
-                // Note: This property exists on virtual devices that can switch to ultra-wide for macro
-                let deviceType = device.deviceType
-                if deviceType == .builtInDualWideCamera || deviceType == .builtInTripleCamera {
-                    print("CameraManager: Device supports automatic macro mode switching")
-                }
-            }
-
-            // Optimize exposure for document scanning
-            if device.isExposureModeSupported(.continuousAutoExposure) {
-                device.exposureMode = .continuousAutoExposure
+                captureSession.beginConfiguration()
+                defer { captureSession.commitConfiguration() }
                 
-                // Set exposure point to center
-                if device.isExposurePointOfInterestSupported {
-                    device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                captureSession.inputs.forEach { captureSession.removeInput($0) }
+                captureSession.outputs.forEach { captureSession.removeOutput($0) }
+                
+                // Set session preset to .photo for high resolution capture
+                captureSession.sessionPreset = .photo
+                print("CameraManager: Using .photo preset for high resolution capture")
+
+                // Try to get a virtual device that supports automatic camera switching (including macro)
+                // This allows the system to automatically switch to ultra-wide for macro when close to subject
+                let device: AVCaptureDevice
+                if let dualWideCamera = AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back) {
+                    device = dualWideCamera
+                    print("CameraManager: Using dual wide camera (supports automatic macro switching)")
+                } else if let tripleCamera = AVCaptureDevice.default(.builtInTripleCamera, for: .video, position: .back) {
+                    device = tripleCamera
+                    print("CameraManager: Using triple camera (supports automatic macro switching)")
+                } else if let dualCamera = AVCaptureDevice.default(.builtInDualCamera, for: .video, position: .back) {
+                    device = dualCamera
+                    print("CameraManager: Using dual camera")
+                } else if let wideCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) {
+                    device = wideCamera
+                    print("CameraManager: Using wide-angle camera (no automatic macro)")
+                } else {
+                    print("Error: No back camera device found.")
+                    continuation.resume(returning: (.noDeviceFound, nil, false))
+                    return
+                }
+                
+                guard let input = try? AVCaptureDeviceInput(device: device) else {
+                    print("Error: Could not create camera input.")
+                    continuation.resume(returning: (.invalidInput, nil, false))
+                    return
+                }
+                
+                guard captureSession.canAddInput(input) else {
+                    print("Error: Cannot add camera input to session.")
+                    continuation.resume(returning: (.invalidInput, nil, false))
+                    return
+                }
+                captureSession.addInput(input)
+
+                // Simplified focus and exposure configuration for faster startup
+                do {
+                    try device.lockForConfiguration()
+
+                    // Set focus mode - prefer continuous autofocus for responsiveness
+                    if device.isFocusModeSupported(.continuousAutoFocus) {
+                        device.focusMode = .continuousAutoFocus
+                        print("CameraManager: Set focusMode to .continuousAutoFocus")
+                    } else if device.isFocusModeSupported(.autoFocus) {
+                        device.focusMode = .autoFocus
+                        print("CameraManager: Set focusMode to .autoFocus")
+                    }
+                    
+                    // Set focus range restriction to near for close-up document scanning
+                    if device.isAutoFocusRangeRestrictionSupported {
+                        device.autoFocusRangeRestriction = .near
+                        print("CameraManager: Set autoFocusRangeRestriction to .near for close focus")
+                    }
+                    
+                    // Enable automatic macro mode switching on supported devices (iOS 15.4+)
+                    // This allows the system to automatically switch to ultra-wide camera for macro
+                    if #available(iOS 15.4, *) {
+                        if device.isAutoFocusRangeRestrictionSupported {
+                            // When using virtual devices (dual/triple camera), the system can automatically
+                            // switch to the ultra-wide camera for macro photography when close to subject
+                            device.automaticallyAdjustsVideoHDREnabled = true
+                            print("CameraManager: Enabled automatic video HDR (enables macro switching)")
+                        }
+                        
+                        // Check if device supports automatic macro switching
+                        // Note: This property exists on virtual devices that can switch to ultra-wide for macro
+                        let deviceType = device.deviceType
+                        if deviceType == .builtInDualWideCamera || deviceType == .builtInTripleCamera {
+                            print("CameraManager: Device supports automatic macro mode switching")
+                        }
+                    }
+
+                    // Optimize exposure for document scanning
+                    if device.isExposureModeSupported(.continuousAutoExposure) {
+                        device.exposureMode = .continuousAutoExposure
+                        
+                        // Set exposure point to center
+                        if device.isExposurePointOfInterestSupported {
+                            device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                        }
+
+                        // Slightly increase exposure for better text readability
+                        let desiredBias: Float = 0.3
+                        if device.minExposureTargetBias <= desiredBias && desiredBias <= device.maxExposureTargetBias {
+                            device.setExposureTargetBias(desiredBias, completionHandler: nil)
+                            print("CameraManager: Set exposure target bias to \(desiredBias)")
+                        }
+                    }
+
+                    // Enable low light boost if available
+                    if device.isLowLightBoostSupported {
+                        device.automaticallyEnablesLowLightBoostWhenAvailable = true
+                        print("CameraManager: Enabled automatic low-light boost")
+                    }
+
+                    // Set zoom to 2.0x on virtual devices to get 1x equivalent field of view
+                    // Virtual devices (dual-wide, triple) default to 0.5x (ultra-wide), so 2.0x gives us 1x
+                    let deviceType = device.deviceType
+                    if deviceType == .builtInDualWideCamera || deviceType == .builtInTripleCamera || deviceType == .builtInDualCamera {
+                        let targetZoom: CGFloat = 2.0
+                        if targetZoom >= device.minAvailableVideoZoomFactor && targetZoom <= device.maxAvailableVideoZoomFactor {
+                            device.videoZoomFactor = targetZoom
+                            print("CameraManager: Set zoom to \(targetZoom)x for 1x equivalent field of view")
+                        }
+                    }
+
+                    device.unlockForConfiguration()
+                } catch {
+                    print("CameraManager: Error configuring focus/exposure: \(error.localizedDescription)")
                 }
 
-                // Slightly increase exposure for better text readability
-                let desiredBias: Float = 0.3
-                if device.minExposureTargetBias <= desiredBias && desiredBias <= device.maxExposureTargetBias {
-                    device.setExposureTargetBias(desiredBias, completionHandler: nil)
-                    print("CameraManager: Set exposure target bias to \(desiredBias)")
+                // Output setup - streamlined
+                guard captureSession.canAddOutput(captureOutput) else {
+                    print("Error: Cannot add photo output to session.")
+                    continuation.resume(returning: (.invalidOutput, nil, false))
+                    return
                 }
+                captureOutput.maxPhotoQualityPrioritization = .quality
+                captureSession.addOutput(captureOutput)
+                
+                continuation.resume(returning: (nil, input, device.hasFlash))
             }
-
-            // Enable low light boost if available
-            if device.isLowLightBoostSupported {
-                device.automaticallyEnablesLowLightBoostWhenAvailable = true
-                print("CameraManager: Enabled automatic low-light boost")
-            }
-
-            device.unlockForConfiguration()
-        } catch {
-            print("CameraManager: Error configuring focus/exposure: \(error.localizedDescription)")
-        }
-
-        // Configure device settings and check flash availability
-        let hasFlash = device.hasFlash
-        
-        DispatchQueue.main.async {
-            self.isFlashAvailable = hasFlash
-            if !hasFlash { self.flashMode = .off }
         }
         
-        // Set zoom to 2.0x on virtual devices to get 1x equivalent field of view
-        // Virtual devices (dual-wide, triple) default to 0.5x (ultra-wide), so 2.0x gives us 1x
-        let deviceType = device.deviceType
-        if deviceType == .builtInDualWideCamera || deviceType == .builtInTripleCamera || deviceType == .builtInDualCamera {
-            do {
-                try device.lockForConfiguration()
-                // 2.0x on the virtual device = 1x field of view (standard wide camera)
-                let targetZoom: CGFloat = 2.0
-                if targetZoom >= device.minAvailableVideoZoomFactor && targetZoom <= device.maxAvailableVideoZoomFactor {
-                    device.videoZoomFactor = targetZoom
-                    print("CameraManager: Set zoom to \(targetZoom)x for 1x equivalent field of view")
-                }
-                device.unlockForConfiguration()
-            } catch {
-                print("CameraManager: Error setting zoom: \(error.localizedDescription)")
-            }
-        }
-
-        // Output setup - streamlined
-        guard session.canAddOutput(photoOutput) else {
-            print("Error: Cannot add photo output to session.")
-            DispatchQueue.main.async {
-                self.errorMessage = CameraError.invalidOutput.localizedDescription
-            }
-            session.commitConfiguration()
-            return
+        if let error = setupResult.error {
+            self.errorMessage = error.localizedDescription
+            return false
         }
         
-        photoOutput.maxPhotoQualityPrioritization = .quality
-        session.addOutput(photoOutput)
-
-        session.commitConfiguration()
+        // Already configured and running.
+        if setupResult.input == nil {
+            return true
+        }
+        
+        self.videoDeviceInput = setupResult.input
+        self.isFlashAvailable = setupResult.hasFlash
+        if !setupResult.hasFlash {
+            self.flashMode = .off
+        }
+        
         print("Camera session setup complete.")
+        return true
     }
     
 
 
     // MARK: - Session Control
 
-    func startSession() {
-        // If called from main thread, dispatch to session queue
-        if Thread.isMainThread {
-            sessionQueue.async { [weak self] in
-                self?.startSessionWithRetry()
-            }
-        } else {
-            startSessionWithRetry()
-        }
+    func startSession() async {
+        await startSessionWithRetry()
     }
     
-    private func startSessionWithRetry(attempts: Int = 3) {
+    private func startSessionWithRetry(attempts: Int = 3) async {
         guard isAuthorized else {
             print("Cannot start session: Not authorized.")
-            DispatchQueue.main.async { [weak self] in
-                if self?.errorMessage == nil {
-                    self?.errorMessage = CameraError.authorizationDenied.localizedDescription
-                }
+            if self.errorMessage == nil {
+                self.errorMessage = CameraError.authorizationDenied.localizedDescription
             }
             return
         }
@@ -341,110 +326,111 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
             return 
         }
 
-        // Start the session - setup should already be complete
-        session.startRunning()
+        // Start the session off the main actor; startRunning() is blocking.
+        let captureSession = session
+        await withCheckedContinuation { continuation in
+            sessionQueue.async {
+                captureSession.startRunning()
+                continuation.resume()
+            }
+        }
         
-        // Verify session actually started
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self = self else { return }
+        if self.session.isRunning {
+            print("Camera session started successfully.")
+            self.isSetupComplete = true
+        } else {
+            print("Camera session failed to start, attempt \(4 - attempts) of 3")
             
-            if self.session.isRunning {
-                print("Camera session started successfully.")
-                self.isSetupComplete = true
-            } else {
-                print("Camera session failed to start, attempt \(4 - attempts) of 3")
+            if attempts > 1 {
+                // Retry with exponential backoff
+                let delay = Double(4 - attempts) * 0.5 // 0.5s, 1.0s, 1.5s
+                print("Retrying camera session start in \(delay) seconds...")
                 
-                if attempts > 1 {
-                    // Retry with exponential backoff
-                    let delay = Double(4 - attempts) * 0.5 // 0.5s, 1.0s, 1.5s
-                    print("Retrying camera session start in \(delay) seconds...")
-                    
-                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                        self.startSessionWithRetry(attempts: attempts - 1)
-                    }
-                } else {
-                    // Max attempts reached
-                    print("Camera session failed to start after 3 attempts")
-                    DispatchQueue.main.async {
-                        self.errorMessage = "Failed to start camera after multiple attempts. Please restart the app."
-                    }
-                }
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                await self.startSessionWithRetry(attempts: attempts - 1)
+            } else {
+                // Max attempts reached
+                print("Camera session failed to start after 3 attempts")
+                self.errorMessage = "Failed to start camera after multiple attempts. Please restart the app."
             }
         }
     }
 
     func stopSession() {
-        sessionQueue.async {
-            guard self.session.isRunning else { return }
-            self.session.stopRunning()
+        let captureSession = self.session
+        let queue = self.sessionQueue
+        queue.async {
+            guard captureSession.isRunning else { return }
+            captureSession.stopRunning()
             print("Camera session stopped.")
         }
     }
 
     // MARK: - Photo Capture
 
+    /// Capture a photo with current settings. Runs on the main actor to safely access properties.
+    @MainActor
     func capturePhoto(completion: @escaping (Result<Data, CameraError>) -> Void) {
-         sessionQueue.async {
-             guard self.session.isRunning else {
-                 print("Cannot capture photo: Session not running.")
-                 completion(.failure(.setupFailed)) // Or a more specific error
-                 return
-             }
+        guard session.isRunning else {
+            print("Cannot capture photo: Session not running.")
+            completion(.failure(.setupFailed)) // Or a more specific error
+            return
+        }
 
-             guard let _ = self.photoOutput.connection(with: .video) else {
-                 print("Cannot capture photo: No video connection for photo output.")
-                 completion(.failure(.invalidOutput))
-                 return
-             }
+        guard let _ = photoOutput.connection(with: .video) else {
+            print("Cannot capture photo: No video connection for photo output.")
+            completion(.failure(.invalidOutput))
+            return
+        }
 
-            // Orientation is typically handled automatically for photo output by embedding metadata.
-            // Setting connection.videoOrientation is deprecated (iOS 17+) and often unnecessary for photos.
+        // Orientation is typically handled automatically for photo output by embedding metadata.
+        // Setting connection.videoOrientation is deprecated (iOS 17+) and often unnecessary for photos.
 
-             // Determine the desired codec type
-             var codecType = AVVideoCodecType.jpeg // Default to JPEG
-             if self.photoOutput.availablePhotoCodecTypes.contains(.hevc) {
-                 codecType = .hevc
-                 print("Using HEVC codec.")
-             } else {
-                 print("Using JPEG codec.")
-             }
+        // Determine the desired codec type
+        var codecType = AVVideoCodecType.jpeg // Default to JPEG
+        if photoOutput.availablePhotoCodecTypes.contains(.hevc) {
+            codecType = .hevc
+            print("Using HEVC codec.")
+        } else {
+            print("Using JPEG codec.")
+        }
 
-             // Initialize settings with the chosen codec
-             let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: codecType])
+        // Initialize settings with the chosen codec
+        let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: codecType])
 
-             // Set photo quality prioritization to ensure high quality captures
-             settings.photoQualityPrioritization = .quality
-             print("Set photo quality prioritization to .quality for capture.")
+        // Set photo quality prioritization to ensure high quality captures
+        settings.photoQualityPrioritization = .quality
+        print("Set photo quality prioritization to .quality for capture.")
 
-              // Apply Flash Setting from our published property
-              if self.isFlashAvailable && self.photoOutput.supportedFlashModes.contains(self.flashMode) {
-                 settings.flashMode = self.flashMode
-                 print("Setting flash mode for capture: \(self.flashMode)")
-             } else if self.isFlashAvailable {
-                 print("Warning: Selected flash mode (\(self.flashMode)) not supported by current output. Using default.")
-                 // Optionally set to a known supported mode like .off or .auto if needed
-                 // settings.flashMode = .off
-             }
+        // Apply Flash Setting from our published property
+        if isFlashAvailable && photoOutput.supportedFlashModes.contains(flashMode) {
+            settings.flashMode = flashMode
+            print("Setting flash mode for capture: \(flashMode)")
+        } else if isFlashAvailable {
+            print("Warning: Selected flash mode (\(flashMode)) not supported by current output. Using default.")
+            // Optionally set to a known supported mode like .off or .auto if needed
+            // settings.flashMode = .off
+        }
 
-             // Store the completion handler
-             self.photoCaptureCompletion = completion
+        // Store the completion handler on main actor
+        photoCaptureCompletion = completion
 
-             // Perform capture
-             self.photoOutput.capturePhoto(with: settings, delegate: self)
-             print("Photo capture initiated.")
-         }
-     }
+        // Perform capture
+        photoOutput.capturePhoto(with: settings, delegate: self)
+        print("Photo capture initiated.")
+    }
 
     // MARK: - AVCapturePhotoCaptureDelegate
 
+    @MainActor
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
-        // Retrieve the completion handler
-         guard let completion = photoCaptureCompletion else {
-             print("Error: Photo capture completion handler is nil.")
-             return
-         }
-         // Clear the stored handler immediately
-         photoCaptureCompletion = nil
+        // Retrieve the completion handler on main actor
+        guard let completion = photoCaptureCompletion else {
+            print("Error: Photo capture completion handler is nil.")
+            return
+        }
+        // Clear the stored handler immediately
+        photoCaptureCompletion = nil
 
         if let error = error {
             print("Error capturing photo: \(error.localizedDescription)")
@@ -551,10 +537,8 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
                 if let savedAsset = fetchResult.firstObject {
                     let finalLocalIdentifier = savedAsset.localIdentifier // Capture the value
                     print("Successfully fetched saved asset with localID: \(finalLocalIdentifier)")
-                    // Update the published property on the main thread
-                    await MainActor.run {
-                        self.lastSavedPhotoLocalIdentifier = finalLocalIdentifier // Use captured value
-                    }
+                    // Update the published property
+                    self.lastSavedPhotoLocalIdentifier = finalLocalIdentifier // Use captured value
                     localIdentifier = finalLocalIdentifier // Update the variable to be returned
                 } else {
                     // This case should be rare if performChanges succeeded
@@ -580,25 +564,11 @@ class CameraManager: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
     }
 
     // Generate a Photos app URL for a given local identifier
-    func generatePhotoURL(for localIdentifier: String) -> URL? {
+    nonisolated func generatePhotoURL(for localIdentifier: String) -> URL? {
         // The URL format follows Apple's Photos app URL scheme
         // Format: photos-redirect://<localIdentifier>
         let urlString = "photos-redirect://\(localIdentifier)"
         return URL(string: urlString)
     }
 
-    /// Proactively request camera and photo library permissions. Calls completion with (cameraGranted, photoGranted).
-    static func requestAllPermissions(completion: @escaping (_ cameraGranted: Bool, _ photoGranted: Bool) -> Void) {
-        // Camera permission
-        AVCaptureDevice.requestAccess(for: .video) { cameraGranted in
-            // Photo library permission (addOnly is sufficient for saving)
-            PHPhotoLibrary.requestAuthorization(for: .addOnly) { photoStatus in
-                let photoGranted = (photoStatus == .authorized)
-                DispatchQueue.main.async {
-                    completion(cameraGranted, photoGranted)
-                }
-            }
-        }
-    }
-    
 }

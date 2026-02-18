@@ -72,8 +72,10 @@ class PerformanceLogger: ObservableObject, @unchecked Sendable {
     /// - Returns: Unique session identifier
     func startSession() -> UUID {
         let session = LogSession(deviceContext: deviceContext)
-        
-        queue.async { [weak self] in
+
+        // Register synchronously so immediate timing calls (startTiming/measureOperation)
+        // in the same code path can always find the session.
+        queue.sync { [weak self] in
             self?._currentSessions[session.id] = session
         }
         
@@ -124,7 +126,7 @@ class PerformanceLogger: ObservableObject, @unchecked Sendable {
     
     /// End a performance logging session
     /// - Parameter sessionId: Session to complete
-    func endSession(_ sessionId: UUID) {
+    func endSession(_ sessionId: UUID, success: Bool = true) {
         queue.async { [weak self] in
             guard let self = self else { return }
             
@@ -136,6 +138,7 @@ class PerformanceLogger: ObservableObject, @unchecked Sendable {
                 }
                 
                 session.complete()
+                session.wasSuccessful = success
                 self._currentSessions.removeValue(forKey: sessionId)
                 self._completedSessions.append(session)
                 
@@ -270,8 +273,14 @@ class PerformanceLogger: ObservableObject, @unchecked Sendable {
         queue.async { [weak self] in
             guard let self = self else { return }
             
-            if let session = self._currentSessions.removeValue(forKey: sessionId) {
-                self.logger.info("Cancelled session \(sessionId) with \(session.entries.count) operations")
+            if var session = self._currentSessions.removeValue(forKey: sessionId) {
+                // Mark as completed but failed, and persist so errors show in logs
+                session.complete()
+                session.wasSuccessful = false
+                self._completedSessions.append(session)
+                self.enforceStorageLimits()
+                self.persistSessions()
+                self.logger.info("Cancelled session \(sessionId) persisted as failed with \(session.entries.count) operations")
             } else {
                 self.logger.warning("Attempted to cancel unknown session: \(sessionId)")
             }
@@ -324,11 +333,11 @@ class PerformanceLogger: ObservableObject, @unchecked Sendable {
     ///   - modelInfo: Optional model information
     ///   - block: The operation to measure
     /// - Returns: Result of the operation
-    func measureOperation<T>(
+    func measureOperation<T: Sendable>(
         _ operation: String,
         sessionId: UUID,
         modelInfo: ModelInfo? = nil,
-        block: @escaping () async throws -> T
+        block: @Sendable @escaping () async throws -> T
     ) async throws -> T {
         // Validate session exists before starting measurement
         guard await sessionExists(sessionId) else {
@@ -399,7 +408,7 @@ class PerformanceLogger: ObservableObject, @unchecked Sendable {
         _ operation: String,
         sessionId: UUID,
         modelInfo: ModelInfo? = nil,
-        block: @escaping () async throws -> Void
+        block: @Sendable @escaping () async throws -> Void
     ) async throws {
         let _: Void = try await measureOperation(operation, sessionId: sessionId, modelInfo: modelInfo, block: block)
     }
@@ -425,8 +434,8 @@ class PerformanceLogger: ObservableObject, @unchecked Sendable {
     ///   - sessionId: Session to log to
     ///   - modelInfo: Optional model information for all operations
     /// - Returns: Array of results from each operation
-    func measureSequentialOperations<T>(
-        _ operations: [(name: String, block: () async throws -> T)],
+    func measureSequentialOperations<T: Sendable>(
+        _ operations: [(name: String, block: @Sendable () async throws -> T)],
         sessionId: UUID,
         modelInfo: ModelInfo? = nil
     ) async throws -> [T] {
@@ -453,12 +462,12 @@ class PerformanceLogger: ObservableObject, @unchecked Sendable {
     ///   - successCondition: Function to determine if result indicates success
     ///   - block: The operation to measure
     /// - Returns: Result of the operation
-    func measureOperationWithCondition<T>(
+    func measureOperationWithCondition<T: Sendable>(
         _ operation: String,
         sessionId: UUID,
         modelInfo: ModelInfo? = nil,
-        successCondition: @escaping (T) -> Bool,
-        block: @escaping () async throws -> T
+        successCondition: @Sendable @escaping (T) -> Bool,
+        block: @Sendable @escaping () async throws -> T
     ) async throws -> T {
         guard await sessionExists(sessionId) else {
             logger.warning("Cannot measure conditional operation '\(operation)' - session \(sessionId) does not exist")
@@ -499,12 +508,12 @@ class PerformanceLogger: ObservableObject, @unchecked Sendable {
     ///   - modelInfo: Optional model information
     ///   - block: The operation to measure
     /// - Returns: Result of the operation
-    func measureOperationWithTimeout<T>(
+    func measureOperationWithTimeout<T: Sendable>(
         _ operation: String,
         sessionId: UUID,
         timeout: TimeInterval,
         modelInfo: ModelInfo? = nil,
-        block: @escaping () async throws -> T
+        block: @Sendable @escaping () async throws -> T
     ) async throws -> T {
         guard await sessionExists(sessionId) else {
             logger.warning("Cannot measure timed operation '\(operation)' - session \(sessionId) does not exist")
@@ -671,7 +680,7 @@ class PerformanceLogger: ObservableObject, @unchecked Sendable {
     ///   - operation: The async operation to execute
     /// - Returns: Result of the operation
     /// - Throws: TimeoutError if operation exceeds timeout, or original error from operation
-    private func withTimeout<T>(seconds: TimeInterval, operation: @escaping () async throws -> T) async throws -> T {
+    private func withTimeout<T: Sendable>(seconds: TimeInterval, operation: @Sendable @escaping () async throws -> T) async throws -> T {
         return try await withThrowingTaskGroup(of: T.self) { group in
             // Add the main operation
             group.addTask {

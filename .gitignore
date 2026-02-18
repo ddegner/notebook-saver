@@ -37,6 +37,10 @@ Pods/
 # Carthage
 Carthage/Build/
 
+# Local build artifacts
+build/
+output/
+
 # fastlane
 fastlane/report.xml
 fastlane/Preview.html

@@ -6,6 +6,7 @@ import Foundation
 enum DraftsError: LocalizedError {
     case notInstalled
     case invalidURL
+    case handoffFailed
     
     var errorDescription: String? {
         switch self {
@@ -13,6 +14,8 @@ enum DraftsError: LocalizedError {
             return "The Drafts app is not installed. Please install it to use this feature."
         case .invalidURL:
             return "Could not construct a valid URL to send data to Drafts."
+        case .handoffFailed:
+            return "Could not hand off the note to Drafts."
         }
     }
 }
@@ -23,7 +26,6 @@ class DraftsHelper {
     // MARK: - Constants
     private static let scheme = "drafts"
     private static let createAction = "create"
-    private static let pendingDraftsKey = "pendingDrafts"
     
     // MARK: - Pending Draft Structure
     private struct PendingDraft: Codable {
@@ -34,44 +36,13 @@ class DraftsHelper {
     
     // MARK: - Public Methods
     
-    /// Creates a new draft in the Drafts app
-    /// - Parameters:
-    ///   - text: The text content to create in Drafts
-    ///   - tag: Optional tag(s) to apply to the draft (comma-separated for multiple tags)
-    ///   - completion: Optional completion handler with success status
-    /// - Throws: DraftsError if Drafts isn't installed or URL creation fails
-    @MainActor
-    static func createDraft(with text: String, tag: String? = nil, completion: ((Bool) -> Void)? = nil) throws {
-        // Check if Drafts is installed
-        try checkDraftsInstalled()
-        
-        // Build and open URL
-        let url = try buildDraftsURL(text: text, tag: tag)
-        print("Opening URL: \(url.absoluteString)")
-        
-        UIApplication.shared.open(url) { success in
-            if success {
-                print("Successfully opened Drafts URL.")
-            } else {
-                print("Warning: There may have been an issue opening Drafts.")
-            }
-            completion?(success)
-        }
-    }
-    
-    /// Async version of createDraft that returns success status
+    /// Creates a new draft in the Drafts app.
+    /// If the app is backgrounded, the draft is queued for the next foreground transition.
     /// - Parameters:
     ///   - text: The text content to create in Drafts
     ///   - tag: Optional tag(s) to apply to the draft
-    ///   - sessionId: Optional performance logging session ID
-    /// - Returns: Boolean indicating success
-    /// - Throws: DraftsError if Drafts isn't installed or URL creation fails
-    static func createDraftAsync(with text: String, tag: String? = nil, sessionId: UUID? = nil) async throws -> Bool {
-        // Direct call to internal implementation (performance logging handled at higher level)
-        return try await _createDraftAsyncInternal(with: text, tag: tag)
-    }
-    
-    private static func _createDraftAsyncInternal(with text: String, tag: String? = nil) async throws -> Bool {
+    /// - Throws: DraftsError if Drafts isn't installed, URL construction fails, or handoff fails.
+    static func createDraftAsync(with text: String, tag: String? = nil) async throws {
         try await checkDraftsInstalledAsync()
         
         let appState = await MainActor.run {
@@ -80,16 +51,25 @@ class DraftsHelper {
         
         if appState != .active {
             storePendingDraft(text: text, tag: tag)
-            return true
+            return
         }
         
-        let url = try await buildDraftsURLAsync(text: text, tag: tag)
-        
-        return await withCheckedContinuation { continuation in
-            Task { @MainActor in
-                UIApplication.shared.open(url) { success in
-                    continuation.resume(returning: success)
-                }
+        try await openDraftDirectly(text: text, tag: tag)
+    }
+    
+    private static func openDraftDirectly(text: String, tag: String?) async throws {
+        let url = try buildDraftsURL(text: text, tag: tag)
+        let opened = await openURL(url)
+        guard opened else {
+            throw DraftsError.handoffFailed
+        }
+    }
+    
+    @MainActor
+    private static func openURL(_ url: URL) async -> Bool {
+        await withCheckedContinuation { continuation in
+            UIApplication.shared.open(url) { success in
+                continuation.resume(returning: success)
             }
         }
     }
@@ -124,7 +104,6 @@ class DraftsHelper {
     ///   - tag: Optional tag(s) to apply to the draft
     /// - Returns: URL to open Drafts with the specified content
     /// - Throws: DraftsError.invalidURL if URL construction fails
-    @MainActor
     private static func buildDraftsURL(text: String, tag: String?) throws -> URL {
         var components = URLComponents()
         components.scheme = scheme
@@ -145,30 +124,21 @@ class DraftsHelper {
         return url
     }
     
-    /// Async version of buildDraftsURL that can be called from background tasks
-    private static func buildDraftsURLAsync(text: String, tag: String?) async throws -> URL {
-        return try await MainActor.run {
-            var components = URLComponents()
-            components.scheme = scheme
-            components.host = createAction
-            
-            var queryItems = [URLQueryItem(name: "text", value: text)]
-            
-            if let tag = tag, !tag.isEmpty {
-                queryItems.append(URLQueryItem(name: "tag", value: tag))
-            }
-            
-            components.queryItems = queryItems
-            
-            guard let url = components.url else {
-                throw DraftsError.invalidURL
-            }
-            
-            return url
+    // MARK: - Pending Draft Management
+    
+    private static func savePendingDrafts(_ drafts: [PendingDraft]) {
+        if drafts.isEmpty {
+            UserDefaults.standard.removeObject(forKey: SettingsKey.pendingDrafts)
+            return
+        }
+        
+        do {
+            let data = try JSONEncoder().encode(drafts)
+            UserDefaults.standard.set(data, forKey: SettingsKey.pendingDrafts)
+        } catch {
+            print("DraftsHelper: Failed to save pending drafts: \(error)")
         }
     }
-    
-    // MARK: - Pending Draft Management
     
     /// Store a draft to be created when the app returns to foreground
     private static func storePendingDraft(text: String, tag: String?) {
@@ -176,19 +146,12 @@ class DraftsHelper {
         
         var pendingDrafts = loadPendingDrafts()
         pendingDrafts.append(pendingDraft)
-        
-        do {
-            let data = try JSONEncoder().encode(pendingDrafts)
-            UserDefaults.standard.set(data, forKey: pendingDraftsKey)
-            UserDefaults.standard.synchronize()
-        } catch {
-            print("DraftsHelper: Failed to store pending draft: \(error)")
-        }
+        savePendingDrafts(pendingDrafts)
     }
     
     /// Load all pending drafts from storage
     private static func loadPendingDrafts() -> [PendingDraft] {
-        guard let data = UserDefaults.standard.data(forKey: pendingDraftsKey) else {
+        guard let data = UserDefaults.standard.data(forKey: SettingsKey.pendingDrafts) else {
             return []
         }
         
@@ -200,12 +163,11 @@ class DraftsHelper {
         }
     }
     
-    /// Create all pending drafts (call when app returns to foreground)
+    /// Attempt to create the next pending draft (call when app returns to foreground).
     @MainActor
     static func createPendingDrafts() async {
-        let pendingDrafts = loadPendingDrafts()
-        
-        guard !pendingDrafts.isEmpty else {
+        var pendingDrafts = loadPendingDrafts()
+        guard let draft = pendingDrafts.first else {
             return
         }
         
@@ -216,35 +178,28 @@ class DraftsHelper {
         }
         
         let sessionId = PerformanceLogger.shared.startSession()
+        let token = PerformanceLogger.shared.startTiming("Create Pending Draft", sessionId: sessionId)
         
-        for draft in pendingDrafts {
-            do {
-                try await Task.sleep(nanoseconds: 500_000_000)
-                try await PerformanceLogger.shared.measureVoidOperation(
-                    "Create Pending Draft",
-                    sessionId: sessionId
-                ) {
-                    try createDraft(with: draft.text, tag: draft.tag)
-                }
-            } catch {
-                if error is DraftsError {
-                    PerformanceLogger.shared.cancelSession(sessionId)
-                    return
-                }
+        do {
+            guard UIApplication.shared.applicationState == .active else {
+                PerformanceLogger.shared.cancelSession(sessionId)
+                return
             }
+            
+            try await openDraftDirectly(text: draft.text, tag: draft.tag)
+            pendingDrafts.removeFirst()
+            savePendingDrafts(pendingDrafts)
+            
+            if let token {
+                PerformanceLogger.shared.endTiming(token, success: true)
+            }
+            PerformanceLogger.shared.endSession(sessionId, success: true)
+        } catch {
+            if let token {
+                PerformanceLogger.shared.endTiming(token, error: error)
+            }
+            PerformanceLogger.shared.endSession(sessionId, success: false)
         }
-        
-        UserDefaults.standard.removeObject(forKey: pendingDraftsKey)
-        PerformanceLogger.shared.endSession(sessionId)
     }
     
-    /// Get count of pending drafts
-    static func pendingDraftCount() -> Int {
-        return loadPendingDrafts().count
-    }
-    
-    /// Debug method to manually add a test pending draft
-    static func addTestPendingDraft() {
-        storePendingDraft(text: "Test draft created at \(Date())", tag: "test")
-    }
 }

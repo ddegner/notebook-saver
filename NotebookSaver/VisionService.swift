@@ -42,12 +42,6 @@ private func cgOrientation(from uiOrientation: UIImage.Orientation) -> CGImagePr
 
 class VisionService: ImageTextExtractor {
 
-    // Define keys for UserDefaults access (matching SettingsView)
-    private enum StorageKeys {
-        static let visionRecognitionLevel = "visionRecognitionLevel"
-        static let visionUsesLanguageCorrection = "visionUsesLanguageCorrection"
-    }
-
     func extractText(from imageData: Data, sessionId: UUID? = nil) async throws -> String {
         // Create UIImage from data and delegate to optimized method
         guard let uiImage = UIImage(data: imageData) else {
@@ -97,7 +91,7 @@ class VisionService: ImageTextExtractor {
         let defaults = UserDefaults.standard
 
         // Recognition Level
-        let levelString = defaults.string(forKey: StorageKeys.visionRecognitionLevel) ?? "accurate" // Default to accurate
+        let levelString = defaults.string(forKey: SettingsKey.visionRecognitionLevel) ?? "accurate" // Default to accurate
         if levelString == "fast" {
             textRecognitionRequest.recognitionLevel = .fast
             print("VisionService: Using recognition level: fast")
@@ -107,7 +101,7 @@ class VisionService: ImageTextExtractor {
         }
 
         // Language Correction
-        let useCorrection = defaults.bool(forKey: StorageKeys.visionUsesLanguageCorrection) // Defaults to false if key doesn't exist, but Settings sets a default
+        let useCorrection = defaults.bool(forKey: SettingsKey.visionUsesLanguageCorrection)
         textRecognitionRequest.usesLanguageCorrection = useCorrection
         print("VisionService: Using language correction: \(useCorrection)")
         // -- End Apply Settings --
@@ -129,13 +123,12 @@ class VisionService: ImageTextExtractor {
 
         // 4. Perform the Request Asynchronously
         if let sessionId = sessionId {
-            // Use performance logger for timing
-            return try await PerformanceLogger.shared.measureOperation(
-                "Vision Text Recognition (\(levelString))",
-                sessionId: sessionId,
-                modelInfo: modelInfo
-            ) {
-                try await withCheckedThrowingContinuation { continuation in
+            // Use manual timing since Vision types aren't Sendable
+            let token = PerformanceLogger.shared.startTiming("Vision Text Recognition (\(levelString))", sessionId: sessionId)
+            
+            let result: String
+            do {
+                result = try await withCheckedThrowingContinuation { continuation in
                     do {
                         print("Performing Vision text recognition...")
                         try requestHandler.perform([textRecognitionRequest])
@@ -161,6 +154,16 @@ class VisionService: ImageTextExtractor {
                         continuation.resume(throwing: VisionError.requestHandlerFailed(handlerError))
                     }
                 }
+                
+                if let token = token {
+                    PerformanceLogger.shared.endTiming(token, modelInfo: modelInfo, success: true)
+                }
+                return result
+            } catch {
+                if let token = token {
+                    PerformanceLogger.shared.endTiming(token, error: error, modelInfo: modelInfo)
+                }
+                throw error
             }
         } else {
             // Fallback without performance logging when no session provided

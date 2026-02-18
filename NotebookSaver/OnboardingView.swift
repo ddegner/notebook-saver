@@ -2,8 +2,8 @@ import SwiftUI
 import Foundation
 
 struct OnboardingView: View {
-    @AppStorage("textExtractorService") private var textExtractorService: String = AppDefaults.textExtractorService
-    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @AppStorage(SettingsKey.textExtractorService) private var textExtractorService: String = AppDefaults.textExtractorService
+    @AppStorage(SettingsKey.hasCompletedOnboarding) private var hasCompletedOnboarding = false
     @State private var apiKey = ""
     @State private var showSaveConfirmation = false
     @State private var saveError: String?
@@ -11,7 +11,7 @@ struct OnboardingView: View {
     @EnvironmentObject var appState: AppStateManager
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ScrollView {
                 VStack(spacing: 32) {
                     // Welcome Header

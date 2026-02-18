@@ -1,13 +1,11 @@
 import Foundation
 import CoreImage
 import UIKit // For UIImage
-import ImageIO // Added ImageIO for HEIC encoding
-import UniformTypeIdentifiers // Added for UTType
 
 // Define specific errors for preprocessing
 enum PreprocessingError: LocalizedError {
     case invalidImageData
-    case encodingFailed(Error?) // Added for generic encoding errors
+    case encodingFailed(Error?)
     case resizeFailed // Added error for resizing issues
 
     var errorDescription: String? {
@@ -16,9 +14,9 @@ enum PreprocessingError: LocalizedError {
             return "Could not create UIImage from the provided data."
         case .encodingFailed(let underlyingError):
             guard let error = underlyingError else {
-                return "Could not create HEIC data from UIImage."
+                return "Could not encode image data."
             }
-            return "Could not create HEIC data from UIImage: \(error.localizedDescription)"
+            return "Could not encode image data: \(error.localizedDescription)"
         case .resizeFailed:
              return "Failed to resize the image."
         }
@@ -82,35 +80,5 @@ struct ImageProcessor {
         let finalUIImage = UIImage(cgImage: resizedCGImage)
         print("ImageProcessor: Resized and enhanced image from \(originalSize) to \(finalUIImage.size) with increased contrast")
         return finalUIImage
-    }
-
-
-
-    // Convert UIImage to HEIC Data
-    func encodeToHEICData(_ image: UIImage, compressionQuality: CGFloat = 0.7) throws -> Data {
-        guard let cgImage = image.cgImage else {
-            print("ImageProcessor: Failed to get CGImage from UIImage.")
-            throw PreprocessingError.invalidImageData // Or a more specific error
-        }
-
-        let imageData = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(imageData, UTType.heic.identifier as CFString, 1, nil) else {
-            print("ImageProcessor: Failed to create CGImageDestination for HEIC.")
-            throw PreprocessingError.encodingFailed(nil) // More specific error could be defined
-        }
-
-        let properties = [kCGImageDestinationLossyCompressionQuality: compressionQuality] as CFDictionary
-
-        CGImageDestinationAddImage(destination, cgImage, properties)
-
-        if CGImageDestinationFinalize(destination) {
-            print("ImageProcessor: Encoded UIImage to HEIC data (\(imageData.length) bytes) with quality \(compressionQuality).")
-            return imageData as Data
-        } else {
-            print("ImageProcessor: Failed to finalize HEIC encoding.")
-            // Attempt to get an error from the destination if possible, though CGImageDestinationFinalize doesn't directly provide one.
-            // For now, throw a generic encoding failed error.
-            throw PreprocessingError.encodingFailed(nil) // Consider adding more error details if possible
-        }
     }
 }

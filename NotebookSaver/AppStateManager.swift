@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 class AppStateManager: ObservableObject {
     @Published var showOnboarding = false
     @Published var shouldReloadAPIKey = false
@@ -8,10 +9,6 @@ class AppStateManager: ObservableObject {
     
     func presentOnboarding() {
         showOnboarding = true
-    }
-    
-    func dismissOnboarding() {
-        showOnboarding = false
     }
     
     func triggerAPIKeyReload() {

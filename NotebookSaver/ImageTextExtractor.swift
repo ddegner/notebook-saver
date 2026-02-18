@@ -23,8 +23,16 @@ extension ImageTextExtractor {
 
 // Enum to identify the different service types
 enum TextExtractorType: String, CaseIterable, Identifiable {
-    case gemini = "Cloud"
-    case vision = "Local"
+    case gemini = "gemini"   // Stable identifier for cloud service
+    case vision = "vision"   // Stable identifier for local service
 
     var id: String { self.rawValue }
+    
+    /// User-facing display name for the service
+    var displayName: String {
+        switch self {
+        case .gemini: return "Cloud"
+        case .vision: return "Local"
+        }
+    }
 }

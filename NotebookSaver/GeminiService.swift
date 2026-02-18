@@ -3,152 +3,45 @@ import SwiftUI // For @Published
 import UIKit // For UIImage
 import CoreImage // Import Core Image
 
-// MARK: - Model Management Service
+enum GeminiPhotoTokenBudget: String, CaseIterable, Identifiable {
+    case unspecified = "MEDIA_RESOLUTION_UNSPECIFIED"
+    case low = "MEDIA_RESOLUTION_LOW"
+    case medium = "MEDIA_RESOLUTION_MEDIUM"
+    case high = "MEDIA_RESOLUTION_HIGH"
 
-class GeminiModelService: ObservableObject {
-    static let shared = GeminiModelService()
-    private init() {}
-    
-    // Storage keys
-    private enum StorageKeys {
-        static let cachedModels = "cachedGeminiModels"
-        static let hasInitiallyFetchedModels = "hasInitiallyFetchedModels"
-    }
-    
-    // Cached models from API
-    @Published var availableModels: [String] = []
-    
-    // Check if we should fetch models (first launch only)
-    var shouldFetchModels: Bool {
-        return !UserDefaults.standard.bool(forKey: StorageKeys.hasInitiallyFetchedModels)
-    }
-    
-    // Fetch available models from API
-    func fetchAvailableModels() async throws -> [String] {
-        let (apiKey, apiEndpointUrl, _, _, _, _) = GeminiService.getSettings()
-        
-        guard let apiKey = apiKey, !apiKey.isEmpty else {
-            throw APIError.missingApiKey
-        }
-        
-        guard let baseUrl = apiEndpointUrl else {
-            throw APIError.invalidApiEndpoint("Invalid URL configuration")
-        }
-        
-        guard let finalUrl = GeminiService.buildURLWithAPIKey(baseURL: baseUrl, apiKey: apiKey) else {
-            throw APIError.invalidApiEndpoint("Failed to construct URL with API key")
-        }
-        
-        var request = URLRequest(url: finalUrl)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 30.0
-        
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw APIError.networkError(URLError(.badServerResponse))
-        }
-        
-        guard httpResponse.statusCode == 200 else {
-            throw httpResponse.statusCode == 401 ? APIError.authenticationError : APIError.serverError(httpResponse.statusCode)
-        }
-        
-        let modelsResponse = try JSONDecoder().decode(GeminiModelsResponse.self, from: data)
-        let models = modelsResponse.models.map(convertToModelIds) ?? getDefaultModelIds()
-        
-        await cacheModelIds(models)
-        return models
-    }
-    
-    // Convert API response to model ID strings
-    private func convertToModelIds(_ apiModels: [GeminiModelInfo]) -> [String] {
-        let knownModels: Set<String> = [
-            "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro", 
-            "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.5-flash-8b"
-        ]
-        
-        return apiModels
-            .map { $0.name.replacingOccurrences(of: "models/", with: "") }
-            .filter { modelName in
-                !modelName.contains("embedding") && 
-                !modelName.contains("imagen") && 
-                !modelName.contains("veo") &&
-                knownModels.contains(modelName)
-            }
-    }
-    
-    // Cache model IDs to UserDefaults
-    @MainActor
-    private func cacheModelIds(_ modelIds: [String]) async {
-        let data = try? JSONEncoder().encode(modelIds)
-        UserDefaults.standard.set(data, forKey: StorageKeys.cachedModels)
-        UserDefaults.standard.set(true, forKey: StorageKeys.hasInitiallyFetchedModels)
-        
-        // Update published property
-        self.availableModels = modelIds
-    }
-    
-    // Load cached model IDs
-    func loadCachedModelIds() -> [String] {
-        guard let data = UserDefaults.standard.data(forKey: StorageKeys.cachedModels) else {
-            return getDefaultModelIds()
-        }
-        
-        guard let modelIds = try? JSONDecoder().decode([String].self, from: data) else {
-            return getDefaultModelIds()
-        }
-        
-        self.availableModels = modelIds
-        return modelIds
-    }
-    
-    // Fallback default model IDs
-    private func getDefaultModelIds() -> [String] {
-        return [
-            "gemini-2.5-flash-lite",
-            "gemini-2.5-flash",
-            "gemini-2.5-pro",
-            "gemini-2.0-flash",
-            "gemini-1.5-pro",
-            "gemini-1.5-flash",
-            "gemini-1.5-flash-8b"
-        ]
-    }
-}
+    var id: String { rawValue }
 
-// MARK: - API Response Structures
-
-struct GeminiModelsResponse: Codable {
-    let models: [GeminiModelInfo]?
-}
-
-struct GeminiModelInfo: Codable {
-    let name: String
-    let displayName: String?
-    let description: String?
-    let version: String?
-    let inputTokenLimit: Int?
-    let outputTokenLimit: Int?
-    let supportedGenerationMethods: [String]?
-    
-    private enum CodingKeys: String, CodingKey {
-        case name
-        case displayName = "display_name"
-        case description
-        case version
-        case inputTokenLimit = "input_token_limit"
-        case outputTokenLimit = "output_token_limit"
-        case supportedGenerationMethods = "supported_generation_methods"
+    var displayName: String {
+        switch self {
+        case .unspecified:
+            return "Auto (Default)"
+        case .low:
+            return "Low (280 tokens)"
+        case .medium:
+            return "Medium (560 tokens)"
+        case .high:
+            return "High (1120 tokens)"
+        }
     }
 }
 
 class GeminiService: ImageTextExtractor {
     // Track if connection has been verified to avoid redundant warm-ups
-    private static var connectionVerified = false
+    nonisolated(unsafe) private static var connectionVerified = false
 
     // Defaults
     private let defaultModelId = "gemini-2.5-flash-lite" // Default model if nothing is set
-    private let defaultPrompt = "Extract text accurately from this image of a notebook page."
+    static let defaultPrompt = """
+        Transcribe all readable text from this notebook page.
+
+        Rules:
+        - Return only the transcription (no intro or commentary).
+        - Preserve original wording, spelling, punctuation, and order.
+        - Keep paragraph/list/line breaks where they are clear.
+        - Use minimal Markdown only when structure is obvious in the page.
+        - If any text is unreadable, write [illegible] in that spot.
+        - Do not guess, summarize, or add content.
+        """
     private static let defaultApiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/"
     private let defaultDraftsTag = "notebook"
 
@@ -162,15 +55,15 @@ class GeminiService: ImageTextExtractor {
     private let imageProcessor = ImageProcessor()
 
     // Helper to get settings from UserDefaults
-    static func getSettings() -> (apiKey: String?, apiEndpointUrl: URL?, modelToUse: String?, prompt: String, draftsTag: String, thinkingEnabled: Bool) {
+    static func getSettings() -> (apiKey: String?, apiEndpointUrl: URL?, modelToUse: String?, prompt: String, draftsTag: String, thinkingEnabled: Bool, photoTokenBudget: GeminiPhotoTokenBudget) {
         let defaults = UserDefaults.standard
 
         let apiKey = KeychainService.loadAPIKey()
 
-        let endpointString = defaults.string(forKey: "apiEndpointUrlString") ?? GeminiService.defaultApiEndpoint
+        let endpointString = defaults.string(forKey: SettingsKey.apiEndpointUrlString) ?? GeminiService.defaultApiEndpoint
         let apiEndpointUrl = URL(string: endpointString)
 
-        let selectedId = defaults.string(forKey: "selectedModelId") ?? "gemini-2.5-flash-lite"
+        let selectedId = defaults.string(forKey: SettingsKey.selectedModelId) ?? "gemini-2.5-flash-lite"
         var modelToUse: String?
         if selectedId == "Custom" {
             modelToUse = defaults.string(forKey: "customModelName")?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -181,11 +74,13 @@ class GeminiService: ImageTextExtractor {
             modelToUse = nil // Treat empty custom model as invalid
         }
 
-        let prompt = defaults.string(forKey: "userPrompt") ?? "Extract text accurately from this image of a notebook page."
-        let draftsTag = defaults.string(forKey: "draftsTag") ?? "notebook"
-        let thinkingEnabled = defaults.bool(forKey: "thinkingEnabled")
+        let prompt = defaults.string(forKey: SettingsKey.userPrompt) ?? GeminiService.defaultPrompt
+        let draftsTag = defaults.string(forKey: SettingsKey.draftsTag) ?? "notebook"
+        let thinkingEnabled = defaults.bool(forKey: SettingsKey.thinkingEnabled)
+        let budgetRaw = defaults.string(forKey: SettingsKey.geminiPhotoTokenBudget) ?? GeminiPhotoTokenBudget.high.rawValue
+        let photoTokenBudget = GeminiPhotoTokenBudget(rawValue: budgetRaw) ?? .high
 
-        return (apiKey, apiEndpointUrl, modelToUse, prompt, draftsTag, thinkingEnabled)
+        return (apiKey, apiEndpointUrl, modelToUse, prompt, draftsTag, thinkingEnabled, photoTokenBudget)
     }
 
     // MARK: - URL Construction Helper
@@ -200,7 +95,7 @@ class GeminiService: ImageTextExtractor {
 
     public static func warmUpConnection() async -> Bool {
         let apiKey = KeychainService.loadAPIKey()
-        let endpointString = UserDefaults.standard.string(forKey: "apiEndpointUrlString") ?? defaultApiEndpoint
+        let endpointString = UserDefaults.standard.string(forKey: SettingsKey.apiEndpointUrlString) ?? defaultApiEndpoint
         
         guard let apiBaseUrl = URL(string: endpointString) else { return false }
         guard let key = apiKey, !key.isEmpty else { return false }
@@ -278,76 +173,91 @@ class GeminiService: ImageTextExtractor {
         }
         let basePrompt = settings.prompt
         let thinkingEnabled = settings.thinkingEnabled
+        let photoTokenBudget = settings.photoTokenBudget
         
         // Create model info for performance logging (will be updated with image metadata later)
-        let modelInfoConfiguration = [
+        var modelInfoConfiguration = [
             "thinking_enabled": String(thinkingEnabled),
             "endpoint": apiBaseUrl.absoluteString
         ]
+        if isGemini3Model(model) {
+            modelInfoConfiguration["photo_token_budget"] = photoTokenBudget.rawValue
+        }
         
         // Use base prompt directly - thinking is enabled via API parameter, not prompt text
         let prompt = basePrompt
         // Quality setting is not currently user-configurable, use a default
-        let heicQuality: CGFloat = 0.6 // Set to 0.6 as requested
+        let jpegQuality: CGFloat = 0.6 // Set to 0.6 as requested
+        let prepTimingToken = sessionId.flatMap { PerformanceLogger.shared.startTiming("Gemini Image Preparation", sessionId: $0) }
+        let imageMetadata: ImageMetadata
+        let base64ImageString: String
+        do {
+            // Capture original image metadata
+            let originalSize = originalUIImage.size
+            let originalImageData = originalUIImage.jpegData(compressionQuality: 1.0) ?? Data()
+            let originalFileSizeBytes = originalImageData.count
 
-        // Capture original image metadata
-        let originalSize = originalUIImage.size
-        let originalImageData = originalUIImage.jpegData(compressionQuality: 1.0) ?? Data()
-        let originalFileSizeBytes = originalImageData.count
+            // 1. Prepare Image using the new ImageProcessor workflow
+            let originalW = max(originalSize.width, CGFloat(1))
+            let originalH = max(originalSize.height, CGFloat(1))
+            let longEdge = max(targetImageWidth, targetImageHeight) // 2304 by default
 
-        // 1. Prepare Image using the new ImageProcessor workflow
-        // Use a consistent long-edge target regardless of orientation
-        // Removed duplicate: let originalSize = originalUIImage.size
-        let originalW = max(originalSize.width, CGFloat(1))
-        let originalH = max(originalSize.height, CGFloat(1))
-        let longEdge = max(targetImageWidth, targetImageHeight) // 2304 by default
+            // Compute orientation-aware target box that preserves aspect ratio
+            let targetW: CGFloat
+            let targetH: CGFloat
+            if originalW >= originalH {
+                // Landscape: long edge maps to width
+                targetW = longEdge
+                targetH = max(CGFloat(1), floor(longEdge * (originalH / originalW)))
+            } else {
+                // Portrait: long edge maps to height
+                targetH = longEdge
+                targetW = max(CGFloat(1), floor(longEdge * (originalW / originalH)))
+            }
 
-        // Compute orientation-aware target box that preserves aspect ratio
-        let targetW: CGFloat
-        let targetH: CGFloat
-        if originalW >= originalH {
-            // Landscape: long edge maps to width
-            targetW = longEdge
-            targetH = max(CGFloat(1), floor(longEdge * (originalH / originalW)))
-        } else {
-            // Portrait: long edge maps to height
-            targetH = longEdge
-            targetW = max(CGFloat(1), floor(longEdge * (originalW / originalH)))
+            print("GeminiService: Using target image long edge: \(Int(longEdge)) -> \(Int(targetW))x\(Int(targetH))")
+
+            // Resize using the computed target box (uniform scaling inside the processor)
+            let resizedUIImage = try imageProcessor.resizeImageToDimensions(originalUIImage, targetWidth: targetW, targetHeight: targetH)
+
+            // Encode the resized UIImage to JPEG
+            guard let preparedImageData = resizedUIImage.jpegData(compressionQuality: jpegQuality) else {
+                throw PreprocessingError.encodingFailed(nil)
+            }
+
+            // Create image metadata for performance logging
+            // Get actual pixel dimensions from CGImage, not logical UIImage size
+            let processedPixelWidth = resizedUIImage.cgImage?.width ?? Int(resizedUIImage.size.width * resizedUIImage.scale)
+            let processedPixelHeight = resizedUIImage.cgImage?.height ?? Int(resizedUIImage.size.height * resizedUIImage.scale)
+
+            let localImageMetadata = ImageMetadata(
+                originalWidth: originalSize.width,
+                originalHeight: originalSize.height,
+                processedWidth: CGFloat(processedPixelWidth),
+                processedHeight: CGFloat(processedPixelHeight),
+                originalFileSizeBytes: originalFileSizeBytes,
+                processedFileSizeBytes: preparedImageData.count,
+                compressionQuality: jpegQuality,
+                imageFormat: "JPEG"
+            )
+            imageMetadata = localImageMetadata
+            base64ImageString = preparedImageData.base64EncodedString()
+
+            if let prepTimingToken {
+                let prepModelInfo = ModelInfo(
+                    serviceName: "Gemini",
+                    modelName: model,
+                    configuration: modelInfoConfiguration,
+                    imageMetadata: localImageMetadata
+                )
+                PerformanceLogger.shared.endTiming(prepTimingToken, modelInfo: prepModelInfo, success: true)
+            }
+        } catch {
+            if let prepTimingToken {
+                PerformanceLogger.shared.endTiming(prepTimingToken, error: error)
+            }
+            throw error
         }
-
-        print("GeminiService: Using target image long edge: \(Int(longEdge)) -> \(Int(targetW))x\(Int(targetH))")
-
-        // Resize using the computed target box (uniform scaling inside the processor)
-        let resizedUIImage = try imageProcessor.resizeImageToDimensions(originalUIImage, targetWidth: targetW, targetHeight: targetH)
-
-        // Encode the resized UIImage to HEIC
-        let preparedImageData = try imageProcessor.encodeToHEICData(resizedUIImage, compressionQuality: heicQuality)
-        
-//        // Old code replaced:
-//        print("GeminiService: Using target image dimensions: \(targetImageWidth)x\(targetImageHeight)")
-//
-//        // Resize the UIImage using the Core Image based method
-//        resizedUIImage = try imageProcessor.resizeImageToDimensions(originalUIImage, targetWidth: targetImageWidth, targetHeight: targetImageHeight)
-//
-//        // Encode the resized UIImage to HEIC
-//        preparedImageData = try imageProcessor.encodeToHEICData(resizedUIImage, compressionQuality: heicQuality)
-
-        // Create image metadata for performance logging
-        // Get actual pixel dimensions from CGImage, not logical UIImage size
-        let processedPixelWidth = resizedUIImage.cgImage?.width ?? Int(resizedUIImage.size.width * resizedUIImage.scale)
-        let processedPixelHeight = resizedUIImage.cgImage?.height ?? Int(resizedUIImage.size.height * resizedUIImage.scale)
-        
-        let imageMetadata = ImageMetadata(
-            originalWidth: originalSize.width,
-            originalHeight: originalSize.height,
-            processedWidth: CGFloat(processedPixelWidth),
-            processedHeight: CGFloat(processedPixelHeight),
-            originalFileSizeBytes: originalFileSizeBytes,
-            processedFileSizeBytes: preparedImageData.count,
-            compressionQuality: heicQuality,
-            imageFormat: "HEIC"
-        )
-        let base64ImageString = preparedImageData.base64EncodedString()
 
         // 2. Construct Request
         let requestUrl = apiBaseUrl.appendingPathComponent("\(model):generateContent")
@@ -358,9 +268,15 @@ class GeminiService: ImageTextExtractor {
         var request = URLRequest(url: finalUrl)
         request.httpMethod = "POST"
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 30.0
+        request.timeoutInterval = 60.0
 
-        let requestBody = createRequestBody(prompt: prompt, base64Image: base64ImageString, thinkingEnabled: thinkingEnabled, model: model)
+        let requestBody = createRequestBody(
+            prompt: prompt,
+            base64Image: base64ImageString,
+            thinkingEnabled: thinkingEnabled,
+            model: model,
+            photoTokenBudget: photoTokenBudget
+        )
         request.httpBody = try JSONEncoder().encode(requestBody)
 
         // 3. Perform Network Request
@@ -448,29 +364,53 @@ class GeminiService: ImageTextExtractor {
 
     // MARK: - Request Body Construction
 
-    private func createRequestBody(prompt: String, base64Image: String, thinkingEnabled: Bool, model: String) -> GeminiRequest {
+    private func createRequestBody(
+        prompt: String,
+        base64Image: String,
+        thinkingEnabled: Bool,
+        model: String,
+        photoTokenBudget: GeminiPhotoTokenBudget
+    ) -> GeminiRequest {
         // Construct the request body based on API documentation
-        let imagePart = GeminiRequest.Part(inlineData: GeminiRequest.Part.InlineData(mimeType: "image/heic", data: base64Image))
+        let imagePart = GeminiRequest.Part(inlineData: GeminiRequest.Part.InlineData(mimeType: "image/jpeg", data: base64Image))
         let textPart = GeminiRequest.Part(text: prompt)
         
         // Only include thinking_config if thinking is enabled AND model supports it
+        let thinkingConfig: GeminiRequest.GenerationConfig.ThinkingConfig? =
+            thinkingEnabled && modelSupportsThinking(model)
+            ? GeminiRequest.GenerationConfig.ThinkingConfig(thinkingBudget: nil)
+            : nil
+
+        let mediaResolution: String?
+        if modelSupportsMediaResolutionControl(model) {
+            mediaResolution = photoTokenBudget.rawValue
+        } else {
+            mediaResolution = nil
+        }
+
         let generationConfig: GeminiRequest.GenerationConfig?
-        if thinkingEnabled && modelSupportsThinking(model) {
-            let thinkingConfig = GeminiRequest.GenerationConfig.ThinkingConfig(thinkingBudget: nil)
-            generationConfig = GeminiRequest.GenerationConfig(thinkingConfig: thinkingConfig)
+        if thinkingConfig != nil || mediaResolution != nil {
+            generationConfig = GeminiRequest.GenerationConfig(
+                thinkingConfig: thinkingConfig,
+                mediaResolution: mediaResolution
+            )
         } else {
             generationConfig = nil
         }
         
-        return GeminiRequest(contents: [GeminiRequest.Content(parts: [textPart, imagePart])], generationConfig: generationConfig)
+        return GeminiRequest(contents: [GeminiRequest.Content(parts: [imagePart, textPart])], generationConfig: generationConfig)
     }
     
     // Check if model supports thinking (2.5+ series models)
     private func modelSupportsThinking(_ model: String) -> Bool {
         let modelLower = model.lowercased()
         
-        // Match 2.5 and higher versions (2.5, 2.6, 3.0, etc.)
-        // Pattern: gemini-X.Y where X >= 2 and (X > 2 OR Y >= 5)
+        // Match version patterns:
+        // - gemini-X.Y (e.g., gemini-2.5-flash)
+        // - gemini-X (e.g., gemini-3-pro-preview)
+        // Supports thinking for: version >= 2.5 (i.e., 2.5, 2.6, 3, 4, etc.)
+        
+        // Try matching X.Y pattern first
         if let range = modelLower.range(of: #"gemini-(\d+)\.(\d+)"#, options: .regularExpression) {
             let versionString = String(modelLower[range])
             let components = versionString.replacingOccurrences(of: "gemini-", with: "").split(separator: ".")
@@ -482,8 +422,28 @@ class GeminiService: ImageTextExtractor {
             }
         }
         
+        // Try matching X pattern (e.g., gemini-3-xxx)
+        if let range = modelLower.range(of: #"gemini-(\d+)-"#, options: .regularExpression) {
+            let versionString = String(modelLower[range])
+            let majorStr = versionString.replacingOccurrences(of: "gemini-", with: "").replacingOccurrences(of: "-", with: "")
+            
+            if let major = Int(majorStr) {
+                return major >= 3 // Gemini 3 and higher support thinking
+            }
+        }
+        
         return false
     }
+
+    private func modelSupportsMediaResolutionControl(_ model: String) -> Bool {
+        return isGemini3Model(model)
+    }
+
+    private func isGemini3Model(_ model: String) -> Bool {
+        let modelLower = model.lowercased()
+        return modelLower.hasPrefix("gemini-3")
+    }
+
 }
 
 // MARK: - Codable Structs for API Request/Response
@@ -520,6 +480,7 @@ struct GeminiRequest: Codable {
     
     struct GenerationConfig: Codable {
         let thinkingConfig: ThinkingConfig?
+        let mediaResolution: String?
         
         struct ThinkingConfig: Codable {
             let thinkingBudget: Int?
@@ -531,6 +492,7 @@ struct GeminiRequest: Codable {
         
         enum CodingKeys: String, CodingKey {
             case thinkingConfig = "thinking_config"
+            case mediaResolution = "media_resolution"
         }
     }
 
@@ -622,51 +584,3 @@ enum APIError: LocalizedError {
         }
     }
 }
-
-
-
-// MARK: - Network Reachability Helper
-
-import SystemConfiguration
-import Network
-
-class Reachability {
-    enum Connection {
-        case wifi
-        case cellular
-        case unavailable
-    }
-    
-    private let monitor = NWPathMonitor()
-    private let queue = DispatchQueue(label: "NetworkMonitor")
-    private var _connection: Connection = .unavailable
-    
-    init() {
-        monitor.pathUpdateHandler = { [weak self] path in
-            if path.status == .satisfied {
-                if path.usesInterfaceType(.cellular) {
-                    self?._connection = .cellular
-                } else if path.usesInterfaceType(.wifi) {
-                    self?._connection = .wifi
-                } else {
-                    // Other connection types like wired, loopback
-                    self?._connection = .wifi
-                }
-            } else {
-                self?._connection = .unavailable
-            }
-        }
-        monitor.start(queue: queue)
-    }
-    
-    deinit {
-        monitor.cancel()
-    }
-    
-    var connection: Connection {
-        // For simplicity, check synchronously - for a more robust implementation,
-        // you might want to add callbacks for connection changes
-        return _connection
-    }
-}
-
