@@ -1,43 +1,11 @@
 # NotebookSaver
 
-A powerful iOS app that transforms handwritten notes and documents into digital text using AI-powered optical character recognition (OCR). Capture images with your camera and instantly extract text using Google's Gemini AI models.
+A powerful iOS app that transforms handwritten notes and documents into digital text using AI-powered optical character recognition (OCR). Capture images with your camera and instantly extract text using Google's Gemini API.
 
-## Features
+## Simple by Design
 
-### 📸 Smart Camera Capture
-- **Multi-Camera System**: Automatically uses all available cameras including macro for close focus
-- **Intelligent Camera Switching**: Seamlessly switches between wide, ultra-wide, telephoto, and macro cameras based on zoom level
-- **Pinch-to-Zoom**: Smooth pinch gestures with automatic camera selection for optimal image quality
-- **Macro Photography**: Enhanced close-focus capabilities for detailed document capture
-- Real-time camera preview with optimized capture settings
-- Automatic image preprocessing for better OCR accuracy
-- High-quality HEIC image encoding for efficient processing
-
-### 🤖 AI-Powered Text Extraction
-- Integration with Google Gemini AI models (2.5 Flash, 2.0 Flash, 1.5 Pro, and more)
-- Customizable prompts to guide AI text extraction
-- Support for multiple Gemini model variants
-- Automatic model discovery and caching
-- "Thinking mode" for enhanced AI reasoning
-
-### 📝 Drafts Integration
-- Seamless integration with the Drafts app
-- Automatic text export with customizable tags
-- Background processing with pending draft queue
-- URL scheme support for deep linking
-
-### ⚙️ Advanced Configuration
-- Custom API endpoint configuration
-- Model selection and custom model support
-- Adjustable image quality and processing settings
-- Secure API key storage using Keychain
-- Comprehensive error handling and retry logic
-
-### 🎨 Intuitive Interface
-- Gesture-based navigation between camera and settings
-- Smooth animations and haptic feedback
-- Onboarding flow for new users
-- Widget support for quick access
+NotebookSaver focuses on a single workflow: capture text, extract it, and move on.  
+It uses the Gemini API for OCR and can send results to Drafts if you want.
 
 ## Requirements
 
@@ -59,35 +27,17 @@ A powerful iOS app that transforms handwritten notes and documents into digital 
 2. Complete the onboarding process
 3. Go to Settings (swipe up from camera view)
 4. Enter your Gemini API key
-5. Select your preferred AI model
+5. Adjust AI processing settings for your workflow
 6. Customize the text extraction prompt
 7. Configure Drafts integration (optional)
 
 ### 3. Start Capturing
 1. Point your camera at handwritten text or documents
-2. Use pinch gestures to zoom in/out - the app automatically selects the best camera
-3. For close-up text, zoom in to activate macro mode for enhanced detail
-4. Tap the capture button
-5. Wait for AI processing
-6. Review and use the extracted text
-
-### Camera Features
-- **Multi-Camera Support**: Automatically discovers and uses the best available camera (triple, dual, or wide)
-- **Smart Zoom Switching**: Switches to telephoto camera for zoom levels above 3x when available
-- **Pinch-to-Zoom**: Smooth gesture control with haptic feedback
-- **Visual Zoom Indicator**: Shows current zoom level when zoomed in
-- **Optimized Focus**: Automatic near-focus restriction for document scanning
+2. Tap the capture button
+3. Wait for AI processing
+4. Review and use the extracted text
 
 ## Configuration Options
-
-### AI Models
-- **Gemini 2.5 Flash** (recommended) - Fast and accurate
-- **Gemini 2.5 Flash Lite** - Lightweight version
-- **Gemini 2.5 Pro** - Most capable model
-- **Gemini 2.0 Flash** - Latest generation
-- **Gemini 1.5 Pro** - Previous generation pro model
-- **Gemini 1.5 Flash** - Previous generation fast model
-- **Custom Model** - Enter any compatible model name
 
 ### Text Extraction Settings
 - **Custom Prompt**: Guide the AI on how to process your images
@@ -151,10 +101,6 @@ NotebookSaver respects your privacy:
 **"API Key is missing"**
 - Ensure you've entered a valid Gemini API key in Settings
 
-**"Model not found"**
-- Try refreshing the models list in Settings
-- Check if your custom model name is correct
-
 **"Service Unavailable"**
 - The app will automatically retry failed requests
 - Check your internet connection
@@ -165,7 +111,7 @@ NotebookSaver respects your privacy:
 - Ensure Drafts integration is enabled in Settings
 
 ### Performance Tips
-- Use Gemini 2.5 Flash for the best speed/accuracy balance
+- Start with the default AI settings for the best speed/accuracy balance
 - Ensure good lighting when capturing images
 - Keep text images clear and well-focused
 - Use the highest quality camera settings
