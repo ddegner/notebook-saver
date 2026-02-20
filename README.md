@@ -1,6 +1,6 @@
 # NotebookSaver
 
-A powerful iOS app that transforms handwritten notes and documents into digital text using AI-powered optical character recognition (OCR). Capture images with your camera and instantly extract text using Google's Gemini API.
+A simple iOS app that transforms handwritten notes and documents into digital text using AI-powered optical character recognition (OCR). Capture images with your camera and instantly extract text using Google's Gemini API.
 
 ## Simple by Design
 
