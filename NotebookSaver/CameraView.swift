@@ -6,13 +6,16 @@ struct CameraView: View {
     @EnvironmentObject private var cameraManager: CameraManager
     @EnvironmentObject private var appState: AppStateManager
     @Binding var isShowingSettings: Bool
-    
+
     @State private var isLoading: Bool = false
     @State private var errorMessage: String?
     @State private var showErrorAlert = false
     @State private var retryableImageData: Data?
     @State private var showRetryOption = false
+    @State private var showApiKeyLink = false
     @State private var currentQuote: (quote: String, author: String)?
+    @State private var modeLabelText: String = ""
+    @State private var showModeLabel: Bool = false
 
 
 
@@ -41,13 +44,29 @@ struct CameraView: View {
                     isLoading: isLoading,
                     currentQuote: currentQuote
                 )
-                
+                .overlay(alignment: .bottom) {
+                    if showModeLabel {
+                        ModeLabelView(text: modeLabelText)
+                            .padding(.bottom, 12)
+                            .transition(.opacity)
+                    }
+                }
+                .animation(.easeInOut(duration: 0.3), value: showModeLabel)
+
                 ControlsArea(
                     isLoading: isLoading,
                     isShowingSettings: $isShowingSettings,
                     onCapturePressed: capturePhoto,
                     availableHeight: controlsHeight,
-                    bottomSafeArea: bottomSafeArea
+                    bottomSafeArea: bottomSafeArea,
+                    onModeChanged: { label in
+                        modeLabelText = label
+                        showModeLabel = true
+                        Task {
+                            try? await Task.sleep(nanoseconds: 1_500_000_000)
+                            withAnimation { showModeLabel = false }
+                        }
+                    }
                 )
             }
             .clipShape(
@@ -60,7 +79,7 @@ struct CameraView: View {
                 )
             )
             .ignoresSafeArea()
-            .persistentSystemOverlays(.hidden)
+            .persistentSystemOverlays(.visible)
         }
         .setupCameraView(
             cameraManager: cameraManager,
@@ -73,16 +92,25 @@ struct CameraView: View {
         )
         .dismissKeyboardOnTap()
         .alert("Error", isPresented: $showErrorAlert, presenting: errorMessage) { _ in
+            if showApiKeyLink {
+                Button("Get API Key") {
+                    if let url = URL(string: "https://aistudio.google.com/apikey") {
+                        UIApplication.shared.open(url)
+                    }
+                }
+            }
             if showRetryOption && retryableImageData != nil {
                 Button("Retry") { retryFailedPhoto() }
                 Button("Cancel", role: .cancel) {
                     errorMessage = nil
+                    showApiKeyLink = false
                     clearRetryState()
                 }
             } else {
                 Button("OK", role: .cancel) {
                     errorMessage = nil
                     showRetryOption = false
+                    showApiKeyLink = false
                 }
             }
         } message: { message in
@@ -115,7 +143,7 @@ struct CameraPreviewArea: View {
     
     var body: some View {
             ZStack {
-            CameraPreview(session: cameraManager.session)
+            CameraPreview(session: cameraManager.session, cameraManager: cameraManager)
             .frame(width: screenWidth, height: cameraHeight)
             .clipped() // Ensure camera preview doesn't overflow
             .background(Color.black)
@@ -179,7 +207,7 @@ struct CameraChevron: View {
 
     var body: some View {
         Button {
-            // Let the container’s implicit animation handle the slide
+            Haptic.softImpact()
             isShowingSettings.toggle()
         } label: {
             Image(systemName: "chevron.up")
@@ -201,24 +229,101 @@ struct ControlsArea: View {
     let onCapturePressed: () -> Void
     let availableHeight: CGFloat
     let bottomSafeArea: CGFloat
-    
+    var onModeChanged: ((String) -> Void)? = nil
+
+    @AppStorage(SettingsKey.scanMode) private var scanModeRaw: String = ScanMode.fast.rawValue
+    @AppStorage(SettingsKey.useCustomSettings) private var useCustomSettings: Bool = false
+    @AppStorage(SettingsKey.textExtractorService) private var textExtractorService: TextExtractorType = .vision
+
+    private var showScanModePicker: Bool {
+        textExtractorService == .gemini && !useCustomSettings
+    }
+
     var body: some View {
-        ZStack(alignment: .bottom) {
-            // Main controls
-            VStack(spacing: 0) {
-                Spacer()
-                CaptureButtonView(action: onCapturePressed)
-                    .disabled(isLoading)
-                Spacer()
+        VStack(spacing: 0) {
+            // Picker pinned to top of controls area (only for Gemini preset mode)
+            if showScanModePicker {
+                ScanModePicker(scanModeRaw: $scanModeRaw, onModeChanged: onModeChanged)
+                    .padding(.top, 10)
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
             }
+
+            // Capture button centered in remaining space
+            Spacer()
+            CaptureButtonView(action: onCapturePressed)
+                .disabled(isLoading)
+            Spacer()
 
             // Chevron pinned to bottom
             CameraChevron(isShowingSettings: $isShowingSettings)
                 .padding(.bottom, max(bottomSafeArea, 20))
         }
+        .animation(.easeInOut(duration: 0.25), value: showScanModePicker)
         .frame(height: availableHeight)
         .frame(maxWidth: .infinity)
-        .background(Color.black.ignoresSafeArea(.all))
+        .background(Color(white: 0.08).ignoresSafeArea(.all))
+    }
+}
+
+// MARK: - Mode Label View (Transient Glass Toast)
+struct ModeLabelView: View {
+    let text: String
+
+    var body: some View {
+        if #available(iOS 26.0, *) {
+            Text(text)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .glassEffect(.regular.interactive(), in: .capsule)
+        } else {
+            Text(text)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(.ultraThinMaterial, in: Capsule())
+        }
+    }
+}
+
+// MARK: - Scan Mode Picker (Custom Dark Pill)
+struct ScanModePicker: View {
+    @Binding var scanModeRaw: String
+    var onModeChanged: ((String) -> Void)? = nil
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(ScanMode.allCases) { mode in
+                Button {
+                    scanModeRaw = mode.rawValue
+                } label: {
+                    Image(systemName: mode.iconName)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.8))
+                        .frame(width: 34, height: 28)
+                        .background(
+                            Capsule()
+                                .fill(scanModeRaw == mode.rawValue ? Color.white.opacity(0.20) : Color.clear)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(3)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.10))
+                .shadow(color: .black.opacity(0.4), radius: 4, x: 0, y: 2)
+        )
+        .animation(.easeInOut(duration: 0.2), value: scanModeRaw)
+        .onChange(of: scanModeRaw) { _, newValue in
+            Haptic.lightImpact()
+            if let mode = ScanMode(rawValue: newValue) {
+                onModeChanged?(mode.displayName)
+            }
+        }
     }
 }
 
@@ -237,13 +342,15 @@ extension View {
     ) -> some View {
         self
             .preferredColorScheme(.dark)
-            .statusBarHidden(true)
+            .statusBarHidden(false)
             .onChange(of: cameraManager.errorMessage) { _, newError in
                 if let error = newError {
                     retryableImageData.wrappedValue = nil
                     showRetryOption.wrappedValue = false
                     errorMessage.wrappedValue = error
-                    showErrorAlert.wrappedValue = true
+                    if !appState.showOnboarding {
+                        showErrorAlert.wrappedValue = true
+                    }
                 }
             }
             .onChange(of: cameraManager.isAuthorized) { _, authorized in
@@ -262,7 +369,9 @@ extension View {
                         retryableImageData.wrappedValue = nil
                         showRetryOption.wrappedValue = false
                         errorMessage.wrappedValue = CameraManager.CameraError.authorizationDenied.localizedDescription
-                        showErrorAlert.wrappedValue = true
+                        if !appState.showOnboarding {
+                            showErrorAlert.wrappedValue = true
+                        }
                     }
                 }
             }
@@ -275,6 +384,10 @@ extension View {
                     Task {
                         await cameraManager.startSession()
                     }
+                }
+                // Pre-establish TLS connection to Gemini while user frames their shot
+                Task {
+                    let _ = await GeminiService.warmUpConnection()
                 }
             }
             .onChange(of: appState.imageToProcess) { _, newURL in
@@ -581,6 +694,9 @@ extension CameraView {
         } catch let error as CameraManager.CameraError {
             PerformanceLogger.shared.endSession(sessionId, success: false)
             await handleError(error.localizedDescription, allowsRetry: capturedImageData != nil)
+        } catch APIError.apiKeyExpired {
+            PerformanceLogger.shared.endSession(sessionId, success: false)
+            await handleError("Gemini Error: \(APIError.apiKeyExpired.localizedDescription)", allowsRetry: false, showApiKeyLink: true)
         } catch let error as APIError {
             PerformanceLogger.shared.endSession(sessionId, success: false)
             await handleError("Gemini Error: \(error.localizedDescription)", allowsRetry: capturedImageData != nil)
@@ -609,43 +725,7 @@ extension CameraView {
     }
     
     private func extractTextFromProcessedImage(_ processedImage: UIImage, sessionId: UUID) async throws -> String {
-        let defaults = UserDefaults.standard
-        let selectedServiceRaw = defaults.string(forKey: SettingsKey.textExtractorService) ?? TextExtractorType.gemini.rawValue
-        var selectedService = TextExtractorType(rawValue: selectedServiceRaw) ?? .gemini
-
-        // Check if Gemini is properly configured, fallback to Vision if not
-        if selectedService == .gemini {
-            let apiKey = KeychainService.loadAPIKey()
-            if apiKey?.isEmpty ?? true {
-                #if DEBUG
-                print("Gemini selected but API key is missing, falling back to Vision")
-                #endif
-                selectedService = .vision
-            }
-        }
-
-        #if DEBUG
-        print("Selected Text Extractor: \(selectedService.rawValue)")
-        #endif
-
-        let textExtractor: ImageTextExtractor
-        switch selectedService {
-        case .gemini:
-            textExtractor = GeminiService()
-            #if DEBUG
-            print("Using Gemini Service with processed image")
-            #endif
-        case .vision:
-            textExtractor = VisionService()
-            #if DEBUG
-            print("Using Vision Service with processed image")
-            #endif
-        }
-
-        #if DEBUG
-        print("Calling \(selectedService.rawValue) Service with cached image...")
-        #endif
-        let extractedText = try await textExtractor.extractText(from: processedImage, sessionId: sessionId)
+        let extractedText = try await TextExtractionPipeline.extractText(from: processedImage, sessionId: sessionId)
         #if DEBUG
         print("Successfully extracted text: \(extractedText.prefix(100))...")
         #endif
@@ -721,6 +801,36 @@ extension CameraView {
     private func sendToDraftsApp(text: String, tags: String) async throws {
         try await DraftsHelper.createDraftAsync(with: text, tag: tags)
     }
+
+    @MainActor
+    private func currentSharePresenter() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        guard let scene = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first else {
+            return nil
+        }
+        guard let keyWindow = scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first,
+              let rootViewController = keyWindow.rootViewController else {
+            return nil
+        }
+
+        var presenter = rootViewController
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+        return presenter
+    }
+
+    @MainActor
+    private func stableSharePresenter(maxAttempts: Int = 6) async -> UIViewController? {
+        for _ in 0..<maxAttempts {
+            guard let presenter = currentSharePresenter() else { return nil }
+            if !presenter.isBeingPresented && !presenter.isBeingDismissed {
+                return presenter
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return currentSharePresenter()
+    }
     
     @MainActor
     private func presentShareSheet(text: String, sessionId: UUID) async throws {
@@ -731,10 +841,26 @@ extension CameraView {
             sessionId: sessionId
         )
 
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let rootViewController = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
+        guard UIApplication.shared.applicationState == .active else {
+            if let timingToken {
+                PerformanceLogger.shared.endTiming(timingToken, error: DraftsError.handoffFailed)
+            }
+            throw DraftsError.handoffFailed
+        }
+
+        guard let presenter = await stableSharePresenter() else {
             #if DEBUG
-            print("Error: Could not find root view controller to present share sheet.")
+            print("Error: Could not find a stable presenter for share sheet.")
+            #endif
+            if let timingToken {
+                PerformanceLogger.shared.endTiming(timingToken, error: DraftsError.handoffFailed)
+            }
+            throw DraftsError.handoffFailed
+        }
+
+        if presenter is UIAlertController {
+            #if DEBUG
+            print("Share sheet deferred because an alert is currently presented.")
             #endif
             if let timingToken {
                 PerformanceLogger.shared.endTiming(timingToken, error: DraftsError.handoffFailed)
@@ -748,17 +874,17 @@ extension CameraView {
         )
 
         if let popoverController = activityViewController.popoverPresentationController {
-            popoverController.sourceView = rootViewController.view
+            popoverController.sourceView = presenter.view
             popoverController.sourceRect = CGRect(
-                x: rootViewController.view.bounds.midX,
-                y: rootViewController.view.bounds.midY,
+                x: presenter.view.bounds.midX,
+                y: presenter.view.bounds.midY,
                 width: 0,
                 height: 0
             )
             popoverController.permittedArrowDirections = []
         }
 
-        rootViewController.present(activityViewController, animated: true, completion: nil)
+        presenter.present(activityViewController, animated: true, completion: nil)
 
         if let timingToken {
             PerformanceLogger.shared.endTiming(timingToken, success: true)
@@ -766,10 +892,11 @@ extension CameraView {
     }
     
     @MainActor
-    private func handleError(_ message: String, allowsRetry: Bool = false) async {
+    private func handleError(_ message: String, allowsRetry: Bool = false, showApiKeyLink: Bool = false) async {
         self.errorMessage = message
+        self.showApiKeyLink = showApiKeyLink
         self.showRetryOption = allowsRetry && self.retryableImageData != nil
-        self.showErrorAlert = true
+        self.showErrorAlert = !appState.showOnboarding
         self.isLoading = false
         let notif = UINotificationFeedbackGenerator()
         notif.prepare()
@@ -788,12 +915,12 @@ struct CaptureButtonView: View {
             ZStack {
                 // Outer ring
                 Circle()
-                    .stroke(Color.white, lineWidth: 2.5)
+                    .stroke(Color.white.opacity(0.9), lineWidth: 2.5)
                     .frame(width: 100, height: 100)
-                
+
                 // Inner circle
                 Circle()
-                    .fill(Color.white)
+                    .fill(Color.white.opacity(0.95))
                     .frame(width: 86, height: 86)
             }
         }

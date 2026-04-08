@@ -17,7 +17,12 @@ class CameraManager: NSObject, ObservableObject, @MainActor AVCapturePhotoCaptur
     @Published var isFlashAvailable = false
     // ---------------------
 
-    // Removed zoom and multi-camera support for simplicity
+    // --- Zoom Control ---
+    @Published var currentZoomFactor: CGFloat = 1.0
+    private(set) var baseZoomFactor: CGFloat = 1.0 // The initial zoom (e.g. 2.0 on virtual devices)
+    private(set) var minZoomFactor: CGFloat = 1.0
+    private(set) var maxZoomFactor: CGFloat = 10.0
+    // ---------------------
 
     // --- Photo Saving ---
     @Published var lastSavedPhotoLocalIdentifier: String? // For linking to saved photos
@@ -142,12 +147,12 @@ class CameraManager: NSObject, ObservableObject, @MainActor AVCapturePhotoCaptur
         let captureSession = session
         let captureOutput = photoOutput
         
-        let setupResult: (error: CameraError?, input: AVCaptureDeviceInput?, hasFlash: Bool) = await withCheckedContinuation {
-            (continuation: CheckedContinuation<(error: CameraError?, input: AVCaptureDeviceInput?, hasFlash: Bool), Never>) in
+        let setupResult: (error: CameraError?, input: AVCaptureDeviceInput?, hasFlash: Bool, baseZoom: CGFloat, minZoom: CGFloat, maxZoom: CGFloat) = await withCheckedContinuation {
+            (continuation: CheckedContinuation<(error: CameraError?, input: AVCaptureDeviceInput?, hasFlash: Bool, baseZoom: CGFloat, minZoom: CGFloat, maxZoom: CGFloat), Never>) in
             sessionQueue.async {
                 guard !captureSession.isRunning else {
                     print("Session is already running.")
-                    continuation.resume(returning: (nil, nil, false))
+                    continuation.resume(returning: (nil, nil, false, 1.0, 1.0, 10.0))
                     return
                 }
                 
@@ -178,19 +183,19 @@ class CameraManager: NSObject, ObservableObject, @MainActor AVCapturePhotoCaptur
                     print("CameraManager: Using wide-angle camera (no automatic macro)")
                 } else {
                     print("Error: No back camera device found.")
-                    continuation.resume(returning: (.noDeviceFound, nil, false))
+                    continuation.resume(returning: (.noDeviceFound, nil, false, 1.0, 1.0, 10.0))
                     return
                 }
                 
                 guard let input = try? AVCaptureDeviceInput(device: device) else {
                     print("Error: Could not create camera input.")
-                    continuation.resume(returning: (.invalidInput, nil, false))
+                    continuation.resume(returning: (.invalidInput, nil, false, 1.0, 1.0, 10.0))
                     return
                 }
                 
                 guard captureSession.canAddInput(input) else {
                     print("Error: Cannot add camera input to session.")
-                    continuation.resume(returning: (.invalidInput, nil, false))
+                    continuation.resume(returning: (.invalidInput, nil, false, 1.0, 1.0, 10.0))
                     return
                 }
                 captureSession.addInput(input)
@@ -274,13 +279,17 @@ class CameraManager: NSObject, ObservableObject, @MainActor AVCapturePhotoCaptur
                 // Output setup - streamlined
                 guard captureSession.canAddOutput(captureOutput) else {
                     print("Error: Cannot add photo output to session.")
-                    continuation.resume(returning: (.invalidOutput, nil, false))
+                    continuation.resume(returning: (.invalidOutput, nil, false, 1.0, 1.0, 10.0))
                     return
                 }
-                captureOutput.maxPhotoQualityPrioritization = .quality
+                captureOutput.maxPhotoQualityPrioritization = .balanced
                 captureSession.addOutput(captureOutput)
-                
-                continuation.resume(returning: (nil, input, device.hasFlash))
+
+                let baseZoom = device.videoZoomFactor
+                let minZoom = device.minAvailableVideoZoomFactor
+                let maxZoom = min(device.maxAvailableVideoZoomFactor, 10.0)
+
+                continuation.resume(returning: (nil, input, device.hasFlash, baseZoom, minZoom, maxZoom))
             }
         }
         
@@ -299,12 +308,31 @@ class CameraManager: NSObject, ObservableObject, @MainActor AVCapturePhotoCaptur
         if !setupResult.hasFlash {
             self.flashMode = .off
         }
+        self.baseZoomFactor = setupResult.baseZoom
+        self.minZoomFactor = setupResult.minZoom
+        self.maxZoomFactor = setupResult.maxZoom
+        self.currentZoomFactor = setupResult.baseZoom
         
         print("Camera session setup complete.")
         return true
     }
     
 
+
+    // MARK: - Zoom Control
+
+    func setZoom(factor: CGFloat) {
+        guard let device = videoDeviceInput?.device else { return }
+        let clamped = min(max(factor, minZoomFactor), maxZoomFactor)
+        do {
+            try device.lockForConfiguration()
+            device.videoZoomFactor = clamped
+            device.unlockForConfiguration()
+            currentZoomFactor = clamped
+        } catch {
+            print("CameraManager: Error setting zoom: \(error.localizedDescription)")
+        }
+    }
 
     // MARK: - Session Control
 
@@ -386,21 +414,14 @@ class CameraManager: NSObject, ObservableObject, @MainActor AVCapturePhotoCaptur
         // Orientation is typically handled automatically for photo output by embedding metadata.
         // Setting connection.videoOrientation is deprecated (iOS 17+) and often unnecessary for photos.
 
-        // Determine the desired codec type
-        var codecType = AVVideoCodecType.jpeg // Default to JPEG
-        if photoOutput.availablePhotoCodecTypes.contains(.hevc) {
-            codecType = .hevc
-            print("Using HEVC codec.")
-        } else {
-            print("Using JPEG codec.")
-        }
+        // Use JPEG directly — the image gets re-encoded to JPEG for the API anyway,
+        // so HEVC encoding is wasted work.
+        let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
 
-        // Initialize settings with the chosen codec
-        let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: codecType])
-
-        // Set photo quality prioritization to ensure high quality captures
-        settings.photoQualityPrioritization = .quality
-        print("Set photo quality prioritization to .quality for capture.")
+        // .balanced skips expensive Deep Fusion/heavy noise reduction — the image gets
+        // resized to 2304px and JPEG-compressed for OCR anyway, so the extra processing is wasted.
+        settings.photoQualityPrioritization = .balanced
+        print("Set photo quality prioritization to .balanced for capture.")
 
         // Apply Flash Setting from our published property
         if isFlashAvailable && photoOutput.supportedFlashModes.contains(flashMode) {
@@ -455,7 +476,7 @@ class CameraManager: NSObject, ObservableObject, @MainActor AVCapturePhotoCaptur
     // MARK: - Photo Saving Functions
 
     // Save a photo to the specified album and return the local identifier
-    func savePhotoToAlbum(imageData: Data, albumName: String) async throws -> String {
+    nonisolated func savePhotoToAlbum(imageData: Data, albumName: String) async throws -> String {
         // Convert data to UIImage
         guard let _ = UIImage(data: imageData) else {
             throw CameraError.processingFailed("Failed to create image from captured data")
@@ -537,8 +558,10 @@ class CameraManager: NSObject, ObservableObject, @MainActor AVCapturePhotoCaptur
                 if let savedAsset = fetchResult.firstObject {
                     let finalLocalIdentifier = savedAsset.localIdentifier // Capture the value
                     print("Successfully fetched saved asset with localID: \(finalLocalIdentifier)")
-                    // Update the published property
-                    self.lastSavedPhotoLocalIdentifier = finalLocalIdentifier // Use captured value
+                    // Hop to MainActor for @Published state updates.
+                    await MainActor.run {
+                        self.lastSavedPhotoLocalIdentifier = finalLocalIdentifier
+                    }
                     localIdentifier = finalLocalIdentifier // Update the variable to be returned
                 } else {
                     // This case should be rare if performChanges succeeded

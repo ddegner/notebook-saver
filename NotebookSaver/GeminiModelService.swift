@@ -18,7 +18,7 @@ class GeminiModelService: ObservableObject {
     
     // Fetch available models from API
     func fetchAvailableModels() async throws -> [String] {
-        let (apiKey, apiEndpointUrl, _, _, _, _, _) = GeminiService.getSettings()
+        let (apiKey, apiEndpointUrl, _, _, _, _, _, _) = GeminiService.getSettings()
         
         guard let apiKey = apiKey, !apiKey.isEmpty else {
             throw APIError.missingApiKey

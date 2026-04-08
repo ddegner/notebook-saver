@@ -3,11 +3,33 @@ import SwiftUI // For @Published
 import UIKit // For UIImage
 import CoreImage // Import Core Image
 
+enum ScanMode: String, CaseIterable, Identifiable {
+    case fast = "fast"
+    case precise = "precise"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .fast: return "Fast"
+        case .precise: return "Precise"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .fast: return "hare"
+        case .precise: return "magnifyingglass"
+        }
+    }
+}
+
 enum GeminiPhotoTokenBudget: String, CaseIterable, Identifiable {
     case unspecified = "MEDIA_RESOLUTION_UNSPECIFIED"
     case low = "MEDIA_RESOLUTION_LOW"
     case medium = "MEDIA_RESOLUTION_MEDIUM"
     case high = "MEDIA_RESOLUTION_HIGH"
+    case ultraHigh = "MEDIA_RESOLUTION_ULTRA_HIGH"
 
     var id: String { rawValue }
 
@@ -21,6 +43,28 @@ enum GeminiPhotoTokenBudget: String, CaseIterable, Identifiable {
             return "Medium (560 tokens)"
         case .high:
             return "High (1120 tokens)"
+        case .ultraHigh:
+            return "Ultra High (2240 tokens)"
+        }
+    }
+}
+
+enum GeminiThinkingLevel: String, CaseIterable, Identifiable {
+    case none = "none"
+    case minimal = "minimal"
+    case low = "low"
+    case medium = "medium"
+    case high = "high"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .none: return "Off"
+        case .minimal: return "Minimal"
+        case .low: return "Low"
+        case .medium: return "Medium"
+        case .high: return "High"
         }
     }
 }
@@ -30,23 +74,35 @@ class GeminiService: ImageTextExtractor {
     nonisolated(unsafe) private static var connectionVerified = false
 
     // Defaults
-    private let defaultModelId = "gemini-2.5-flash-lite" // Default model if nothing is set
+    private let defaultModelId = "gemini-3.1-flash-lite-preview" // Default model if nothing is set
     static let defaultPrompt = """
-        Transcribe all readable text from this notebook page.
-
-        Rules:
-        - Return only the transcription (no intro or commentary).
+        You are an expert at reading handwritten notes. Follow these rules:
+        - Return a JSON object with a single key "lines" containing an array of strings, one per line of text.
+        - Transcribe EVERY piece of handwritten text visible in the image, including titles, margin notes, and annotations.
+        - Do NOT skip any text, even if it appears small or unimportant.
+        - This is handwritten text — pay extra attention to letter shapes and context to distinguish similar-looking letters (e.g. a/o, u/n, r/v, t/l).
+        - Use surrounding words and sentence context to resolve ambiguous letters.
+        - Identify the language and script automatically.
+        - Preserve the original script — do not transliterate to Latin characters.
         - Preserve original wording, spelling, punctuation, and order.
-        - Keep paragraph/list/line breaks where they are clear.
-        - Use minimal Markdown only when structure is obvious in the page.
-        - If any text is unreadable, write [illegible] in that spot.
-        - Do not guess, summarize, or add content.
+        - If any text is unreadable, make your best guess based on context.
+        - If anything is scratched out, ignore it.
+        - Do not summarize or add content.
         """
+    static let defaultUserMessagePrompt = "Transcribe ALL handwritten text from this notebook page. Include every line, title, annotation, and margin note. Do not skip anything."
     private static let defaultApiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/"
     private let defaultDraftsTag = "notebook"
 
-    private let targetImageWidth: CGFloat = 2048.0 // Target width for Gemini uploads (4:3 aspect ratio)
-    private let targetImageHeight: CGFloat = 2304.0 // Target height for Gemini uploads (long side)
+    private var targetImageLongEdge: CGFloat {
+        let defaults = SharedDefaults.suite
+        let useCustom = defaults.bool(forKey: SettingsKey.useCustomSettings)
+        if !useCustom {
+            let modeRaw = defaults.string(forKey: SettingsKey.scanMode) ?? ScanMode.fast.rawValue
+            let mode = ScanMode(rawValue: modeRaw) ?? .fast
+            return mode == .precise ? 3456.0 : 2304.0
+        }
+        return 2304.0 // Custom mode uses standard resolution
+    }
     
     // Retry configuration
     private let maxRetryAttempts = 2 // Reduced from 3 for faster failure detection
@@ -55,32 +111,61 @@ class GeminiService: ImageTextExtractor {
     private let imageProcessor = ImageProcessor()
 
     // Helper to get settings from UserDefaults
-    static func getSettings() -> (apiKey: String?, apiEndpointUrl: URL?, modelToUse: String?, prompt: String, draftsTag: String, thinkingEnabled: Bool, photoTokenBudget: GeminiPhotoTokenBudget) {
-        let defaults = UserDefaults.standard
+    static func getSettings() -> (apiKey: String?, apiEndpointUrl: URL?, modelToUse: String?, systemPrompt: String, userMessagePrompt: String, draftsTag: String, thinkingLevel: GeminiThinkingLevel, photoTokenBudget: GeminiPhotoTokenBudget) {
+        let defaults = SharedDefaults.suite
 
         let apiKey = KeychainService.loadAPIKey()
 
         let endpointString = defaults.string(forKey: SettingsKey.apiEndpointUrlString) ?? GeminiService.defaultApiEndpoint
         let apiEndpointUrl = URL(string: endpointString)
 
-        let selectedId = defaults.string(forKey: SettingsKey.selectedModelId) ?? "gemini-2.5-flash-lite"
-        var modelToUse: String?
-        if selectedId == "Custom" {
-            modelToUse = defaults.string(forKey: "customModelName")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        } else {
-            modelToUse = selectedId
-        }
-        if modelToUse?.isEmpty ?? true {
-            modelToUse = nil // Treat empty custom model as invalid
-        }
-
-        let prompt = defaults.string(forKey: SettingsKey.userPrompt) ?? GeminiService.defaultPrompt
+        let systemPrompt = defaults.string(forKey: SettingsKey.userPrompt) ?? GeminiService.defaultPrompt
+        let userMessagePrompt = defaults.string(forKey: SettingsKey.userMessagePrompt) ?? GeminiService.defaultUserMessagePrompt
         let draftsTag = defaults.string(forKey: SettingsKey.draftsTag) ?? "notebook"
-        let thinkingEnabled = defaults.bool(forKey: SettingsKey.thinkingEnabled)
-        let budgetRaw = defaults.string(forKey: SettingsKey.geminiPhotoTokenBudget) ?? GeminiPhotoTokenBudget.high.rawValue
-        let photoTokenBudget = GeminiPhotoTokenBudget(rawValue: budgetRaw) ?? .high
 
-        return (apiKey, apiEndpointUrl, modelToUse, prompt, draftsTag, thinkingEnabled, photoTokenBudget)
+        let useCustomSettings = defaults.bool(forKey: SettingsKey.useCustomSettings)
+
+        if useCustomSettings {
+            // Custom mode: use all stored individual settings
+            let selectedId = defaults.string(forKey: SettingsKey.selectedModelId) ?? "gemini-2.5-flash-lite"
+            var modelToUse: String?
+            if selectedId == "Custom" {
+                modelToUse = defaults.string(forKey: "customModelName")?.trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                modelToUse = selectedId
+            }
+            if modelToUse?.isEmpty ?? true {
+                modelToUse = nil
+            }
+
+            let thinkingLevelRaw = defaults.string(forKey: SettingsKey.thinkingLevel) ?? GeminiThinkingLevel.none.rawValue
+            let thinkingLevel = GeminiThinkingLevel(rawValue: thinkingLevelRaw) ?? .none
+            let budgetRaw = defaults.string(forKey: SettingsKey.geminiPhotoTokenBudget) ?? GeminiPhotoTokenBudget.medium.rawValue
+            let photoTokenBudget = GeminiPhotoTokenBudget(rawValue: budgetRaw) ?? .medium
+
+            return (apiKey, apiEndpointUrl, modelToUse, systemPrompt, userMessagePrompt, draftsTag, thinkingLevel, photoTokenBudget)
+        } else {
+            // Preset mode: hardcoded settings based on scan mode
+            let modeRaw = defaults.string(forKey: SettingsKey.scanMode) ?? ScanMode.fast.rawValue
+            let mode = ScanMode(rawValue: modeRaw) ?? .fast
+
+            let modelToUse: String
+            let thinkingLevel: GeminiThinkingLevel
+            let photoTokenBudget: GeminiPhotoTokenBudget
+
+            switch mode {
+            case .fast:
+                modelToUse = "gemini-3.1-flash-lite-preview"
+                thinkingLevel = .none
+                photoTokenBudget = .medium
+            case .precise:
+                modelToUse = "gemini-3.1-pro-preview"
+                thinkingLevel = .medium
+                photoTokenBudget = .high
+            }
+
+            return (apiKey, apiEndpointUrl, modelToUse, systemPrompt, userMessagePrompt, draftsTag, thinkingLevel, photoTokenBudget)
+        }
     }
 
     // MARK: - URL Construction Helper
@@ -95,7 +180,7 @@ class GeminiService: ImageTextExtractor {
 
     public static func warmUpConnection() async -> Bool {
         let apiKey = KeychainService.loadAPIKey()
-        let endpointString = UserDefaults.standard.string(forKey: SettingsKey.apiEndpointUrlString) ?? defaultApiEndpoint
+        let endpointString = SharedDefaults.suite.string(forKey: SettingsKey.apiEndpointUrlString) ?? defaultApiEndpoint
         
         guard let apiBaseUrl = URL(string: endpointString) else { return false }
         guard let key = apiKey, !key.isEmpty else { return false }
@@ -130,7 +215,7 @@ class GeminiService: ImageTextExtractor {
                 let shouldRetry: Bool
                 if let apiError = error as? APIError {
                     switch apiError {
-                    case .serviceUnavailable, .serverError:
+                    case .serviceUnavailable, .serverError, .networkError:
                         shouldRetry = true
                     default:
                         shouldRetry = false
@@ -171,36 +256,36 @@ class GeminiService: ImageTextExtractor {
         guard let model = settings.modelToUse else {
             throw APIError.missingModelConfiguration
         }
-        let basePrompt = settings.prompt
-        let thinkingEnabled = settings.thinkingEnabled
+        let systemPrompt = settings.systemPrompt
+        let userMessagePrompt = settings.userMessagePrompt
+        let thinkingLevel = settings.thinkingLevel
         let photoTokenBudget = settings.photoTokenBudget
-        
+
         // Create model info for performance logging (will be updated with image metadata later)
         var modelInfoConfiguration = [
-            "thinking_enabled": String(thinkingEnabled),
+            "thinking_level": thinkingLevel.rawValue,
             "endpoint": apiBaseUrl.absoluteString
         ]
         if isGemini3Model(model) {
             modelInfoConfiguration["photo_token_budget"] = photoTokenBudget.rawValue
         }
-        
-        // Use base prompt directly - thinking is enabled via API parameter, not prompt text
-        let prompt = basePrompt
-        // Quality setting is not currently user-configurable, use a default
-        let jpegQuality: CGFloat = 0.6 // Set to 0.6 as requested
+        // JPEG 0.50 produces identical OCR quality to 0.80 at 2304px resolution
+        // while cutting file size ~53% (838KB → 394KB avg). Verified across 7 test images.
+        let jpegQuality: CGFloat = 0.50
         let prepTimingToken = sessionId.flatMap { PerformanceLogger.shared.startTiming("Gemini Image Preparation", sessionId: $0) }
         let imageMetadata: ImageMetadata
         let base64ImageString: String
         do {
             // Capture original image metadata
             let originalSize = originalUIImage.size
-            let originalImageData = originalUIImage.jpegData(compressionQuality: 1.0) ?? Data()
-            let originalFileSizeBytes = originalImageData.count
+            // Estimate original size from pixel dimensions (avoids expensive full-res JPEG encode
+            // that was only used for logging — ~50-100ms wasted on 12MP photos)
+            let originalFileSizeBytes = Int(originalSize.width * originalSize.height) * 3 // ~RGB estimate
 
             // 1. Prepare Image using the new ImageProcessor workflow
             let originalW = max(originalSize.width, CGFloat(1))
             let originalH = max(originalSize.height, CGFloat(1))
-            let longEdge = max(targetImageWidth, targetImageHeight) // 2304 by default
+            let longEdge = targetImageLongEdge
 
             // Compute orientation-aware target box that preserves aspect ratio
             let targetW: CGFloat
@@ -271,9 +356,10 @@ class GeminiService: ImageTextExtractor {
         request.timeoutInterval = 60.0
 
         let requestBody = createRequestBody(
-            prompt: prompt,
+            systemPrompt: systemPrompt,
+            userMessagePrompt: userMessagePrompt,
             base64Image: base64ImageString,
-            thinkingEnabled: thinkingEnabled,
+            thinkingLevel: thinkingLevel,
             model: model,
             photoTokenBudget: photoTokenBudget
         )
@@ -298,6 +384,12 @@ class GeminiService: ImageTextExtractor {
     
     // MARK: - Network Request Helper
     
+    // Hard deadline for the API request — URLRequest.timeoutInterval only covers idle time,
+    // so a server that trickles data can keep the request alive indefinitely.
+    // Flash-lite normally responds in 2-4s; 30s is generous enough for retries while
+    // preventing the 40s-1800s stalls seen in production logs.
+    private static let requestDeadline: TimeInterval = 30.0
+
     private func performRequest(
         request: URLRequest,
         model: String,
@@ -312,21 +404,57 @@ class GeminiService: ImageTextExtractor {
                 configuration: modelInfoConfiguration,
                 imageMetadata: imageMetadata
             )
-            
+
+            let deadline = Self.requestDeadline
             return try await PerformanceLogger.shared.measureOperation(
                 "Gemini API Request (\(model))",
                 sessionId: sessionId,
                 modelInfo: modelInfo
             ) {
-                try await URLSession.shared.data(for: request)
+                try await GeminiService.withDeadline(deadline) {
+                    try await URLSession.shared.data(for: request)
+                }
             }
         } else {
-            return try await URLSession.shared.data(for: request)
+            return try await GeminiService.withDeadline(Self.requestDeadline) {
+                try await URLSession.shared.data(for: request)
+            }
+        }
+    }
+
+    /// Runs an async operation with a hard timeout, cancelling if the deadline is exceeded.
+    private static func withDeadline<T: Sendable>(
+        _ timeout: TimeInterval,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                throw APIError.networkError(URLError(.timedOut))
+            }
+            // First to finish wins; cancel the other
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
         }
     }
     
     // MARK: - Response Handler
     
+    /// Decode structured JSON response {"lines": ["..."]} into plain text
+    private func parseStructuredResponse(_ rawText: String) -> String {
+        guard let data = rawText.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let lines = json["lines"] as? [String] else {
+            // Not valid JSON or missing "lines" key — return raw text as-is
+            return rawText
+        }
+        return lines.joined(separator: "\n")
+    }
+
     private func handleResponse(httpResponse: HTTPURLResponse, data: Data, model: String) throws -> String {
         switch httpResponse.statusCode {
         case 200...299:
@@ -334,14 +462,20 @@ class GeminiService: ImageTextExtractor {
             let allPartsText = decodedResponse.candidates?.first?.content?.parts?
                 .compactMap { $0.text }
                 .joined(separator: "\n\n")
-            
+
             guard let text = allPartsText, !text.isEmpty else {
                 throw APIError.noTextFound
             }
-            return text
+            return parseStructuredResponse(text)
             
         case 400:
-            throw APIError.badRequest(String(data: data, encoding: .utf8))
+            let bodyString = String(data: data, encoding: .utf8)
+            // Check if this is an expired/invalid API key (returns 400, not 401)
+            if let body = bodyString,
+               body.contains("API_KEY_INVALID") || body.contains("API key expired") {
+                throw APIError.apiKeyExpired
+            }
+            throw APIError.badRequest(bodyString)
         case 401, 403:
             throw APIError.authenticationError
         case 404:
@@ -365,21 +499,27 @@ class GeminiService: ImageTextExtractor {
     // MARK: - Request Body Construction
 
     private func createRequestBody(
-        prompt: String,
+        systemPrompt: String,
+        userMessagePrompt: String,
         base64Image: String,
-        thinkingEnabled: Bool,
+        thinkingLevel: GeminiThinkingLevel,
         model: String,
         photoTokenBudget: GeminiPhotoTokenBudget
     ) -> GeminiRequest {
-        // Construct the request body based on API documentation
+        // Image part first, then user message (Google's recommended order)
         let imagePart = GeminiRequest.Part(inlineData: GeminiRequest.Part.InlineData(mimeType: "image/jpeg", data: base64Image))
-        let textPart = GeminiRequest.Part(text: prompt)
-        
-        // Only include thinking_config if thinking is enabled AND model supports it
-        let thinkingConfig: GeminiRequest.GenerationConfig.ThinkingConfig? =
-            thinkingEnabled && modelSupportsThinking(model)
-            ? GeminiRequest.GenerationConfig.ThinkingConfig(thinkingBudget: nil)
-            : nil
+        let textPart = GeminiRequest.Part(text: userMessagePrompt)
+
+        // System instruction as top-level field (separates behavior from content)
+        let systemInstruction = GeminiRequest.Content(parts: [GeminiRequest.Part(text: systemPrompt)])
+
+        // Only include thinking_config if thinking is not "none" AND model supports it
+        let thinkingConfig: GeminiRequest.GenerationConfig.ThinkingConfig?
+        if thinkingLevel != .none && modelSupportsThinking(model) {
+            thinkingConfig = GeminiRequest.GenerationConfig.ThinkingConfig(thinkingLevel: thinkingLevel.rawValue)
+        } else {
+            thinkingConfig = nil
+        }
 
         let mediaResolution: String?
         if modelSupportsMediaResolutionControl(model) {
@@ -388,17 +528,25 @@ class GeminiService: ImageTextExtractor {
             mediaResolution = nil
         }
 
-        let generationConfig: GeminiRequest.GenerationConfig?
-        if thinkingConfig != nil || mediaResolution != nil {
-            generationConfig = GeminiRequest.GenerationConfig(
-                thinkingConfig: thinkingConfig,
-                mediaResolution: mediaResolution
-            )
-        } else {
-            generationConfig = nil
-        }
-        
-        return GeminiRequest(contents: [GeminiRequest.Content(parts: [imagePart, textPart])], generationConfig: generationConfig)
+        // Temperature=0 for deterministic OCR output (greedy decoding)
+        let temperature: Double = 0.0
+
+        // JSON structured output for clean line-by-line transcription
+        // Only used when thinking is off — thinking models may not support response_mime_type
+        let responseMimeType: String? = (thinkingConfig == nil) ? "application/json" : nil
+
+        let generationConfig = GeminiRequest.GenerationConfig(
+            thinkingConfig: thinkingConfig,
+            mediaResolution: mediaResolution,
+            temperature: temperature,
+            responseMimeType: responseMimeType
+        )
+
+        return GeminiRequest(
+            systemInstruction: systemInstruction,
+            contents: [GeminiRequest.Content(parts: [imagePart, textPart])],
+            generationConfig: generationConfig
+        )
     }
     
     // Check if model supports thinking (2.5+ series models)
@@ -477,29 +625,35 @@ struct GeminiRequest: Codable {
              }
         }
     }
-    
+
     struct GenerationConfig: Codable {
         let thinkingConfig: ThinkingConfig?
         let mediaResolution: String?
-        
+        let temperature: Double?
+        let responseMimeType: String?
+
         struct ThinkingConfig: Codable {
-            let thinkingBudget: Int?
-            
+            let thinkingLevel: String?
+
             enum CodingKeys: String, CodingKey {
-                case thinkingBudget = "thinking_budget"
+                case thinkingLevel = "thinking_level"
             }
         }
-        
+
         enum CodingKeys: String, CodingKey {
             case thinkingConfig = "thinking_config"
             case mediaResolution = "media_resolution"
+            case temperature
+            case responseMimeType = "response_mime_type"
         }
     }
 
+    let systemInstruction: Content?
     let contents: [Content]
     let generationConfig: GenerationConfig?
-    
+
     enum CodingKeys: String, CodingKey {
+        case systemInstruction = "system_instruction"
         case contents
         case generationConfig = "generation_config"
     }
@@ -524,6 +678,7 @@ struct GeminiResponse: Codable {
 // MARK: - Custom API Errors
 enum APIError: LocalizedError {
     case missingApiKey
+    case apiKeyExpired
     case invalidApiEndpoint(String)
     case missingModelConfiguration
     case modelNotFound(String) // New error for 404s
@@ -544,6 +699,8 @@ enum APIError: LocalizedError {
         switch self {
         case .missingApiKey:
             return "API Key is missing. Please set it in Settings."
+        case .apiKeyExpired:
+            return "Your Gemini API key has expired or is invalid. Please generate a new key at aistudio.google.com/apikey and update it in Settings."
         case .invalidApiEndpoint(let endpoint):
             return "Invalid API Endpoint URL configured: \(endpoint)"
         case .missingModelConfiguration:

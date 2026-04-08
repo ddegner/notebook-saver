@@ -11,6 +11,9 @@
 		7F3764E32DC566A20038F019 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7F3764E22DC566A20038F019 /* SwiftUI.framework */; };
 		7F3764F22DC566A40038F019 /* Cat NoteWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7F3764DE2DC566A20038F019 /* Cat NoteWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		7F530FFC2EAF249800017123 /* icon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 7F530FFB2EAF249800017123 /* icon.icon */; };
+		7F61950B2F84AED7008F7D51 /* LocalLLMClient in Frameworks */ = {isa = PBXBuildFile; productRef = 7F1234562F61000100000002 /* LocalLLMClient */; };
+		7F61950C2F84AED7008F7D51 /* LocalLLMClientLlama in Frameworks */ = {isa = PBXBuildFile; productRef = 7F1234562F61000100000003 /* LocalLLMClientLlama */; };
+		7FA001012F60A0010000000E /* CatScribeShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7FA001012F60A00100000001 /* CatScribeShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -20,6 +23,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 7F3764DD2DC566A20038F019;
 			remoteInfo = NotebookSaverWidgetsExtension;
+		};
+		7FA001012F60A0010000000C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7F3764A22DC45A9C0038F019 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7FA001012F60A00100000008;
+			remoteInfo = CatScribeShareExtension;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -31,6 +41,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				7F3764F22DC566A40038F019 /* Cat NoteWidgetsExtension.appex in Embed Foundation Extensions */,
+				7FA001012F60A0010000000E /* CatScribeShareExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -44,6 +55,7 @@
 		7F3764E22DC566A20038F019 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		7F530FFB2EAF249800017123 /* icon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = icon.icon; sourceTree = "<group>"; };
 		7F682F1A2E99803800C56A2D /* Cat Scribe.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Cat Scribe.entitlements"; sourceTree = "<group>"; };
+		7FA001012F60A00100000001 /* CatScribeShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = CatScribeShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -61,6 +73,35 @@
 			);
 			target = 7F3764DD2DC566A20038F019 /* Cat NoteWidgetsExtension */;
 		};
+		7FA001012F60A00100000003 /* Exceptions for "CatScribeShareExtension" folder in "CatScribeShareExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 7FA001012F60A00100000008 /* CatScribeShareExtension */;
+		};
+		7FA001012F60A00100000004 /* Exceptions for "NotebookSaver" folder in "CatScribeShareExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				AppStateManager.swift,
+				Assets.xcassets,
+				CameraManager.swift,
+				CameraPreview.swift,
+				CameraView.swift,
+				ContentView.swift,
+				DraftsHelper.swift,
+				GeminiModelService.swift,
+				Info.plist,
+				KeyboardHandler.swift,
+				NotebookQuotes.swift,
+				NotebookSaverApp.swift,
+				OnboardingView.swift,
+				PerformanceLogView.swift,
+				PrivacyInfo.xcprivacy,
+				SettingsView.swift,
+			);
+			target = 7FA001012F60A00100000008 /* CatScribeShareExtension */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -68,6 +109,7 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				7F3764D92DC557730038F019 /* Exceptions for "NotebookSaver" folder in "Cat Scribe" target */,
+				7FA001012F60A00100000004 /* Exceptions for "NotebookSaver" folder in "CatScribeShareExtension" target */,
 			);
 			path = NotebookSaver;
 			sourceTree = "<group>";
@@ -80,6 +122,14 @@
 			path = NotebookSaverWidgets;
 			sourceTree = "<group>";
 		};
+		7FA001012F60A00100000002 /* CatScribeShareExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				7FA001012F60A00100000003 /* Exceptions for "CatScribeShareExtension" folder in "CatScribeShareExtension" target */,
+			);
+			path = CatScribeShareExtension;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -87,6 +137,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7F61950C2F84AED7008F7D51 /* LocalLLMClientLlama in Frameworks */,
+				7F61950B2F84AED7008F7D51 /* LocalLLMClient in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -96,6 +148,13 @@
 			files = (
 				7F3764E32DC566A20038F019 /* SwiftUI.framework in Frameworks */,
 				7F3764E12DC566A20038F019 /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7FA001012F60A00100000006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -110,6 +169,7 @@
 				7F3764E22DC566A20038F019 /* SwiftUI.framework */,
 				7F3764AC2DC45A9C0038F019 /* NotebookSaver */,
 				7F3764E42DC566A20038F019 /* NotebookSaverWidgets */,
+				7FA001012F60A00100000002 /* CatScribeShareExtension */,
 				7F3764DF2DC566A20038F019 /* Frameworks */,
 				7F3764AB2DC45A9C0038F019 /* Products */,
 			);
@@ -120,6 +180,7 @@
 			children = (
 				7F3764AA2DC45A9C0038F019 /* Cat Scribe.app */,
 				7F3764DE2DC566A20038F019 /* Cat NoteWidgetsExtension.appex */,
+				7FA001012F60A00100000001 /* CatScribeShareExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -148,6 +209,7 @@
 			);
 			dependencies = (
 				7F3764F12DC566A40038F019 /* PBXTargetDependency */,
+				7FA001012F60A0010000000D /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				7F3764AC2DC45A9C0038F019 /* NotebookSaver */,
@@ -181,6 +243,29 @@
 			productReference = 7F3764DE2DC566A20038F019 /* Cat NoteWidgetsExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		7FA001012F60A00100000008 /* CatScribeShareExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7FA001012F60A0010000000B /* Build configuration list for PBXNativeTarget "CatScribeShareExtension" */;
+			buildPhases = (
+				7FA001012F60A00100000005 /* Sources */,
+				7FA001012F60A00100000006 /* Frameworks */,
+				7FA001012F60A00100000007 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				7F3764AC2DC45A9C0038F019 /* NotebookSaver */,
+				7FA001012F60A00100000002 /* CatScribeShareExtension */,
+			);
+			name = CatScribeShareExtension;
+			packageProductDependencies = (
+			);
+			productName = CatScribeShareExtension;
+			productReference = 7FA001012F60A00100000001 /* CatScribeShareExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -196,6 +281,9 @@
 						LastSwiftMigration = 1630;
 					};
 					7F3764DD2DC566A20038F019 = {
+						CreatedOnToolsVersion = 16.3;
+					};
+					7FA001012F60A00100000008 = {
 						CreatedOnToolsVersion = 16.3;
 					};
 				};
@@ -218,6 +306,7 @@
 			targets = (
 				7F3764A92DC45A9C0038F019 /* Cat Scribe */,
 				7F3764DD2DC566A20038F019 /* Cat NoteWidgetsExtension */,
+				7FA001012F60A00100000008 /* CatScribeShareExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -232,6 +321,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		7F3764DC2DC566A20038F019 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7FA001012F60A00100000007 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -255,6 +351,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		7FA001012F60A00100000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -262,6 +365,11 @@
 			isa = PBXTargetDependency;
 			target = 7F3764DD2DC566A20038F019 /* Cat NoteWidgetsExtension */;
 			targetProxy = 7F3764F02DC566A40038F019 /* PBXContainerItemProxy */;
+		};
+		7FA001012F60A0010000000D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7FA001012F60A00100000008 /* CatScribeShareExtension */;
+			targetProxy = 7FA001012F60A0010000000C /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -327,6 +435,7 @@
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_UPCOMING_FEATURE_CONCISE_MAGIC_FILE = YES;
@@ -387,6 +496,7 @@
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
+
 				SWIFT_STRICT_CONCURRENCY = complete;
 				SWIFT_UPCOMING_FEATURE_CONCISE_MAGIC_FILE = YES;
 				VALIDATE_PRODUCT = YES;
@@ -402,7 +512,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = "Cat Scribe.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = Q26G342EEL;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -423,7 +533,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.daviddegner.NotebookSaver;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -446,7 +556,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = "Cat Scribe.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = Q26G342EEL;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -467,7 +577,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.daviddegner.NotebookSaver;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -486,7 +596,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = Q26G342EEL;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = NotebookSaverWidgets/Info.plist;
@@ -497,7 +607,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.daviddegner.NotebookSaver.NotebookSaverWidgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -513,7 +623,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = Q26G342EEL;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = NotebookSaverWidgets/Info.plist;
@@ -524,13 +634,67 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.daviddegner.NotebookSaver.NotebookSaverWidgets;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		7FA001012F60A00100000009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = CatScribeShareExtension/CatScribeShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = Q26G342EEL;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CatScribeShareExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Cat Scribe";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.2;
+				PRODUCT_BUNDLE_IDENTIFIER = com.daviddegner.NotebookSaver.CatScribeShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		7FA001012F60A0010000000A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = CatScribeShareExtension/CatScribeShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = Q26G342EEL;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CatScribeShareExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Cat Scribe";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.2;
+				PRODUCT_BUNDLE_IDENTIFIER = com.daviddegner.NotebookSaver.CatScribeShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -564,7 +728,20 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		7FA001012F60A0010000000B /* Build configuration list for PBXNativeTarget "CatScribeShareExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7FA001012F60A00100000009 /* Debug */,
+				7FA001012F60A0010000000A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
+/* End XCRemoteSwiftPackageReference section */
+
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 7F3764A22DC45A9C0038F019 /* Project object */;
 }

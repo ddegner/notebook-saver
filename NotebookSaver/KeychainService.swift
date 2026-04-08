@@ -8,9 +8,10 @@ import Security
 
 class KeychainService {
 
-    // Define service and account keys used to identify the keychain item.
-    // Using Bundle Identifier guarantees uniqueness.
-    private static let service = Bundle.main.bundleIdentifier ?? "com.example.notebooksaver.apikey"
+    // Use a fixed service identifier shared between the main app and extensions.
+    // Bundle.main.bundleIdentifier differs per target, so a constant ensures both
+    // the app and the share extension access the same keychain item.
+    private static let service = SharedDefaults.keychainService
     private static let account = "geminiAPIKey"
 
     // MARK: - Save API Key

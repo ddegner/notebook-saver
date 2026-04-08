@@ -87,8 +87,8 @@ class VisionService: ImageTextExtractor {
             }
         }
 
-        // -- Apply settings from UserDefaults --
-        let defaults = UserDefaults.standard
+        // -- Apply settings from shared suite (works in both app and extension) --
+        let defaults = SharedDefaults.suite
 
         // Recognition Level
         let levelString = defaults.string(forKey: SettingsKey.visionRecognitionLevel) ?? "accurate" // Default to accurate
@@ -129,13 +129,55 @@ class VisionService: ImageTextExtractor {
             let result: String
             do {
                 result = try await withCheckedThrowingContinuation { continuation in
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        do {
+                            print("Performing Vision text recognition...")
+                            try requestHandler.perform([textRecognitionRequest])
+                            print("Vision request performed.")
+
+                            // Process results
+                            guard let results = textRecognitionRequest.results,
+                                  !results.isEmpty else {
+                                print("Vision found no text observations.")
+                                continuation.resume(throwing: VisionError.noTextFound)
+                                return
+                            }
+                            print("Found \(results.count) text observations.")
+
+                            // Extract text
+                            let recognizedStrings = results.compactMap { $0.topCandidates(1).first?.string }
+                            let joinedText = recognizedStrings.joined(separator: "\n")
+                            print("Extracted text successfully.")
+                            continuation.resume(returning: joinedText)
+
+                        } catch let handlerError {
+                            print("Vision request handler failed: \(handlerError)")
+                            continuation.resume(throwing: VisionError.requestHandlerFailed(handlerError))
+                        }
+                    }
+                }
+                
+                if let token = token {
+                    PerformanceLogger.shared.endTiming(token, modelInfo: modelInfo, success: true)
+                }
+                return result
+            } catch {
+                if let token = token {
+                    PerformanceLogger.shared.endTiming(token, error: error, modelInfo: modelInfo)
+                }
+                throw error
+            }
+        } else {
+            // Fallback without performance logging when no session provided
+            return try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
                     do {
                         print("Performing Vision text recognition...")
                         try requestHandler.perform([textRecognitionRequest])
                         print("Vision request performed.")
 
                         // Process results
-                        guard let results = textRecognitionRequest.results, 
+                        guard let results = textRecognitionRequest.results,
                               !results.isEmpty else {
                             print("Vision found no text observations.")
                             continuation.resume(throwing: VisionError.noTextFound)
@@ -153,44 +195,6 @@ class VisionService: ImageTextExtractor {
                         print("Vision request handler failed: \(handlerError)")
                         continuation.resume(throwing: VisionError.requestHandlerFailed(handlerError))
                     }
-                }
-                
-                if let token = token {
-                    PerformanceLogger.shared.endTiming(token, modelInfo: modelInfo, success: true)
-                }
-                return result
-            } catch {
-                if let token = token {
-                    PerformanceLogger.shared.endTiming(token, error: error, modelInfo: modelInfo)
-                }
-                throw error
-            }
-        } else {
-            // Fallback without performance logging when no session provided
-            return try await withCheckedThrowingContinuation { continuation in
-                do {
-                    print("Performing Vision text recognition...")
-                    try requestHandler.perform([textRecognitionRequest])
-                    print("Vision request performed.")
-
-                    // Process results
-                    guard let results = textRecognitionRequest.results, 
-                          !results.isEmpty else {
-                        print("Vision found no text observations.")
-                        continuation.resume(throwing: VisionError.noTextFound)
-                        return
-                    }
-                    print("Found \(results.count) text observations.")
-
-                    // Extract text
-                    let recognizedStrings = results.compactMap { $0.topCandidates(1).first?.string }
-                    let joinedText = recognizedStrings.joined(separator: "\n")
-                    print("Extracted text successfully.")
-                    continuation.resume(returning: joinedText)
-
-                } catch let handlerError {
-                    print("Vision request handler failed: \(handlerError)")
-                    continuation.resume(throwing: VisionError.requestHandlerFailed(handlerError))
                 }
             }
         }

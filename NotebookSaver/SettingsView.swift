@@ -1,5 +1,14 @@
 import SwiftUI
 import os.log
+import UIKit
+
+// MARK: - Haptic Feedback Helper
+enum Haptic {
+    static func selection() { UISelectionFeedbackGenerator().selectionChanged() }
+    static func lightImpact(_ intensity: CGFloat = 0.5) { UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: intensity) }
+    static func softImpact(_ intensity: CGFloat = 0.5) { UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: intensity) }
+    static func warning() { UINotificationFeedbackGenerator().notificationOccurred(.warning) }
+}
 
 // Logger for Settings-related actions
 private let settingsLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "NotebookSaver", category: "Settings")
@@ -59,7 +68,7 @@ struct SettingsView: View {
     @State private var selectedTab: SettingsTab = .ai
 
     // === Persisted Settings (using centralized SettingsKey) ===
-    @AppStorage(SettingsKey.selectedModelId) private var selectedModelId: String = "gemini-2.5-flash-lite"
+    @AppStorage(SettingsKey.selectedModelId) private var selectedModelId: String = "gemini-3.1-flash-lite-preview"
     @AppStorage(SettingsKey.userPrompt) private var userPrompt: String = GeminiService.defaultPrompt
     @AppStorage(SettingsKey.apiEndpointUrlString) private var apiEndpointUrlString: String = "https://generativelanguage.googleapis.com/v1beta/models/"
     @AppStorage(SettingsKey.draftsTag) private var draftsTag: String = "notebook"
@@ -69,12 +78,13 @@ struct SettingsView: View {
     // Vision specific settings
     @AppStorage(SettingsKey.visionRecognitionLevel) private var visionRecognitionLevel: VisionRecognitionLevel = .accurate
     @AppStorage(SettingsKey.visionUsesLanguageCorrection) private var visionUsesLanguageCorrection: Bool = true
-    // AI thinking toggle
-    @AppStorage(SettingsKey.thinkingEnabled) private var thinkingEnabled: Bool = false
-    @AppStorage(SettingsKey.geminiPhotoTokenBudget) private var geminiPhotoTokenBudget: GeminiPhotoTokenBudget = .high
+    // AI thinking level
+    @AppStorage(SettingsKey.thinkingLevel) private var thinkingLevel: GeminiThinkingLevel = .none
+    @AppStorage(SettingsKey.userMessagePrompt) private var userMessagePrompt: String = GeminiService.defaultUserMessagePrompt
+    @AppStorage(SettingsKey.geminiPhotoTokenBudget) private var geminiPhotoTokenBudget: GeminiPhotoTokenBudget = .medium
     // Text extraction service selection (typed enum)
     @AppStorage(SettingsKey.textExtractorService) private var textExtractorService: TextExtractorType = .vision
-
+    @AppStorage(SettingsKey.useCustomSettings) private var useCustomSettings: Bool = false
     // === State for API Key (using Keychain) ===
     @State private var apiKey: String = ""
     @State private var apiKeyStatusMessage: String = ""
@@ -93,7 +103,8 @@ struct SettingsView: View {
     @ObservedObject private var modelService = GeminiModelService.shared
 
     // Focus state for text fields to enable tap-to-dismiss
-    @FocusState private var isPromptFocused: Bool
+    @FocusState private var isSystemPromptFocused: Bool
+    @FocusState private var isUserMessagePromptFocused: Bool
     @FocusState private var isApiKeyFocused: Bool
     @FocusState private var isDraftsTagFocused: Bool
     @FocusState private var isPhotoFolderFocused: Bool
@@ -164,6 +175,7 @@ struct SettingsView: View {
                     ForEach([SettingsTab.ai, SettingsTab.general, SettingsTab.about], id: \.self) { tab in
                         let index = [SettingsTab.ai, SettingsTab.general, SettingsTab.about].firstIndex(of: tab) ?? 0
                         Button(action: {
+                            Haptic.softImpact()
                             withAnimation(.easeInOut(duration: 0.3)) {
                                 selectedTab = tab
                             }
@@ -242,115 +254,120 @@ struct SettingsView: View {
                     // Add top padding to prevent content from being cut off by camera
                     Spacer()
                         .frame(height: 20)
-                // Add tag to draft toggle - horizontal layout
-                HStack(spacing: 16) {
-                    Text("Add Tag To Draft")
-                        .font(.headline)
-                        .foregroundColor(Color.orangeTabbyText.opacity(0.7))
-                    
-                    Spacer()
-                    
-                    Toggle("", isOn: $addDraftTagEnabled)
-                        .labelsHidden()
-                        .tint(Color.orangeTabbyAccent)
-                }
 
-                // Draft Tag - horizontal layout (only show if adding tags is enabled)
-                if addDraftTagEnabled {
-                    HStack(spacing: 16) {
-                        Text("Draft Tag")
-                            .font(.headline)
-                            .foregroundColor(Color.orangeTabbyText.opacity(0.7))
-                            .frame(width: 120, alignment: .leading)
-                        
-                        TextField("Tag name", text: $draftsTag)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled(true)
-                            .focused($isDraftsTagFocused)
-                            .onSubmit { isDraftsTagFocused = false }
-                            .id("draftsTag")
-                            .onChange(of: isDraftsTagFocused) { _, focused in
-                                if focused {
-                                    // Add a small delay to ensure keyboard is shown first
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                        withAnimation(.easeInOut(duration: 0.3)) {
-                                            proxy.scrollTo("draftsTag", anchor: .center)
-                                        }
-                                    }
-                                }
+                    settingsCard(icon: "gear", title: "Drafts & Photos") {
+                        VStack(alignment: .leading, spacing: 20) {
+                            // Add tag to draft toggle
+                            HStack(spacing: 16) {
+                                Text("Add Tag To Draft")
+                                    .font(.headline)
+                                    .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+
+                                Spacer()
+
+                                Toggle("", isOn: $addDraftTagEnabled)
+                                    .labelsHidden()
+                                    .tint(Color.orangeTabbyAccent)
+                                    .onChange(of: addDraftTagEnabled) { _, _ in Haptic.selection() }
                             }
-                            .frame(height: 46)
-                            .padding(.horizontal, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color.orangeTabbyLight.opacity(0.7))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .stroke(isDraftsTagFocused ? Color.orangeTabbyAccent : Color.orangeTabbyDark.opacity(0.4), lineWidth: isDraftsTagFocused ? 2 : 1)
-                                    )
-                            )
-                            .foregroundColor(Color.orangeTabbyText)
-                    }
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-                }
 
-                // Save Photo Toggle - horizontal layout
-                HStack(spacing: 16) {
-                    Text("Save Photo")
-                        .font(.headline)
-                        .foregroundColor(Color.orangeTabbyText.opacity(0.7))
-                    
-                    Spacer()
-                    
-                    Toggle("", isOn: $savePhotosEnabled)
-                        .labelsHidden()
-                        .tint(Color.orangeTabbyAccent)
-                }
+                            // Draft Tag field (only show if adding tags is enabled)
+                            if addDraftTagEnabled {
+                                HStack(spacing: 16) {
+                                    Text("Draft Tag")
+                                        .font(.headline)
+                                        .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+                                        .frame(width: 120, alignment: .leading)
 
-                // Photo Album - horizontal layout (only show if saving photos is enabled)
-                if savePhotosEnabled {
-                    HStack(spacing: 16) {
-                        Text("Photo Album")
-                            .font(.headline)
-                            .foregroundColor(Color.orangeTabbyText.opacity(0.7))
-                            .frame(width: 120, alignment: .leading)
-                        
-                        TextField("Album name", text: $photoFolderName)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled(true)
-                            .focused($isPhotoFolderFocused)
-                            .onSubmit { isPhotoFolderFocused = false }
-                            .id("photoFolder")
-                            .onChange(of: isPhotoFolderFocused) { _, focused in
-                                if focused {
-                                    // Add a small delay to ensure keyboard is shown first
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                        withAnimation(.easeInOut(duration: 0.3)) {
-                                            proxy.scrollTo("photoFolder", anchor: .center)
+                                    TextField("Tag name", text: $draftsTag)
+                                        .textInputAutocapitalization(.never)
+                                        .autocorrectionDisabled(true)
+                                        .focused($isDraftsTagFocused)
+                                        .onSubmit { isDraftsTagFocused = false }
+                                        .id("draftsTag")
+                                        .onChange(of: isDraftsTagFocused) { _, focused in
+                                            if focused {
+                                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                                    withAnimation(.easeInOut(duration: 0.3)) {
+                                                        proxy.scrollTo("draftsTag", anchor: .center)
+                                                    }
+                                                }
+                                            }
                                         }
-                                    }
+                                        .frame(height: 46)
+                                        .padding(.horizontal, 12)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .fill(Color.orangeTabbyLight.opacity(0.7))
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 8)
+                                                        .stroke(isDraftsTagFocused ? Color.orangeTabbyAccent : Color.orangeTabbyDark.opacity(0.4), lineWidth: isDraftsTagFocused ? 2 : 1)
+                                                )
+                                        )
+                                        .foregroundColor(Color.orangeTabbyText)
                                 }
+                                .transition(.opacity.combined(with: .move(edge: .top)))
                             }
-                            .frame(height: 46)
-                            .padding(.horizontal, 12)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color.orangeTabbyLight.opacity(0.7))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .stroke(isPhotoFolderFocused ? Color.orangeTabbyAccent : Color.orangeTabbyDark.opacity(0.4), lineWidth: isPhotoFolderFocused ? 2 : 1)
-                                    )
-                            )
-                            .foregroundColor(Color.orangeTabbyText)
+
+                            // Save Photo Toggle
+                            HStack(spacing: 16) {
+                                Text("Save Photo")
+                                    .font(.headline)
+                                    .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+
+                                Spacer()
+
+                                Toggle("", isOn: $savePhotosEnabled)
+                                    .labelsHidden()
+                                    .tint(Color.orangeTabbyAccent)
+                                    .onChange(of: savePhotosEnabled) { _, _ in Haptic.selection() }
+                            }
+
+                            // Photo Album field (only show if saving photos is enabled)
+                            if savePhotosEnabled {
+                                HStack(spacing: 16) {
+                                    Text("Photo Album")
+                                        .font(.headline)
+                                        .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+                                        .frame(width: 120, alignment: .leading)
+
+                                    TextField("Album name", text: $photoFolderName)
+                                        .textInputAutocapitalization(.never)
+                                        .autocorrectionDisabled(true)
+                                        .focused($isPhotoFolderFocused)
+                                        .onSubmit { isPhotoFolderFocused = false }
+                                        .id("photoFolder")
+                                        .onChange(of: isPhotoFolderFocused) { _, focused in
+                                            if focused {
+                                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                                    withAnimation(.easeInOut(duration: 0.3)) {
+                                                        proxy.scrollTo("photoFolder", anchor: .center)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        .frame(height: 46)
+                                        .padding(.horizontal, 12)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .fill(Color.orangeTabbyLight.opacity(0.7))
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 8)
+                                                        .stroke(isPhotoFolderFocused ? Color.orangeTabbyAccent : Color.orangeTabbyDark.opacity(0.4), lineWidth: isPhotoFolderFocused ? 2 : 1)
+                                                )
+                                        )
+                                        .foregroundColor(Color.orangeTabbyText)
+                                }
+                                .transition(.opacity.combined(with: .move(edge: .top)))
+                            }
+                        }
                     }
-                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
+                .padding()
             }
-            .padding()
-        }
-        .scrollDismissesKeyboard(.interactively)
-        .animation(.easeInOut(duration: 0.3), value: addDraftTagEnabled)
-        .animation(.easeInOut(duration: 0.3), value: savePhotosEnabled)
+            .scrollDismissesKeyboard(.interactively)
+            .animation(.easeInOut(duration: 0.3), value: addDraftTagEnabled)
+            .animation(.easeInOut(duration: 0.3), value: savePhotosEnabled)
         }
     }
 
@@ -372,72 +389,161 @@ struct SettingsView: View {
                     .pickerStyle(SegmentedPickerStyle())
                     .frame(height: 46)
                     .animation(.easeInOut(duration: 0.2), value: textExtractorService)
+                    .onChange(of: textExtractorService) { _, _ in Haptic.lightImpact() }
                     
                     // Show different content based on selected service
                     if textExtractorService == .gemini {
-                        // Cloud (Gemini) settings
-                        
-                        // AI Instruction Prompt
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Prompt")
-                                .font(.headline)
-                                .foregroundColor(Color.orangeTabbyText.opacity(0.7))
-                            
-                            TextEditor(text: $userPrompt)
-                                .frame(minHeight: 100, idealHeight: 150, maxHeight: 200)
-                                .scrollContentBackground(.hidden)
-                                .padding(10)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(Color.orangeTabbyLight.opacity(0.7))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .stroke(isPromptFocused ? Color.orangeTabbyAccent : Color.orangeTabbyDark.opacity(0.4), lineWidth: isPromptFocused ? 2 : 1)
-                                        )
+                        // Cloud (Gemini) settings — card layout
+
+                        // Gemini info + API Key card
+                        settingsCard(icon: "cloud.fill", title: "Gemini Cloud") {
+                            VStack(alignment: .leading, spacing: 16) {
+                                explanationItem(
+                                    icon: "sparkles",
+                                    title: "High Quality",
+                                    description: "AI-powered extraction with superior handwriting recognition."
                                 )
-                                .focused($isPromptFocused)
-                                .onSubmit { isPromptFocused = false }
-                                .id("promptEditor")
-                                .onChange(of: isPromptFocused) { _, focused in
-                                    if focused {
-                                        // Add a small delay to ensure keyboard is shown first
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                            withAnimation(.easeInOut(duration: 0.3)) {
-                                                proxy.scrollTo("promptEditor", anchor: .center)
-                                            }
-                                        }
-                                    }
-                                }
-                                .foregroundColor(Color.orangeTabbyText)
-                                .layoutPriority(1)
+                                explanationItem(
+                                    icon: "wifi",
+                                    title: "Requires Internet",
+                                    description: "Images are sent to Google's Gemini API for processing."
+                                )
+                            }
+
+                            Divider()
+                                .background(Color.orangeTabbyAccent.opacity(0.3))
+
+                            apiKeySection(proxy: proxy)
                         }
 
-                        geminiSettingsSection(proxy: proxy)
-                        
-                        // AI Thinking Toggle - horizontal layout
-                        HStack(spacing: 16) {
-                            Text("Thinking")
-                                .font(.headline)
-                                .foregroundColor(Color.orangeTabbyText.opacity(0.7))
-                            
-                            Spacer()
-                            
-                            Toggle("", isOn: $thinkingEnabled)
-                                .labelsHidden()
-                                .tint(Color.orangeTabbyAccent)
-                                .onChange(of: thinkingEnabled) { _, enabled in
-                                    updatePromptForThinking(enabled: enabled)
+                        // Custom Settings card
+                        settingsCardPlain {
+                            // Use Custom Settings toggle
+                            HStack(spacing: 16) {
+                                Text("Use Custom Settings")
+                                    .font(.headline)
+                                    .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+
+                                Spacer()
+
+                                Toggle("", isOn: $useCustomSettings)
+                                    .labelsHidden()
+                                    .tint(Color.orangeTabbyAccent)
+                                    .onChange(of: useCustomSettings) { _, _ in Haptic.selection() }
+                            }
+
+                            // Custom settings (only visible when toggle is on)
+                            if useCustomSettings {
+                                // System Prompt
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text("System Prompt")
+                                        .font(.headline)
+                                        .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+
+                                    TextEditor(text: $userPrompt)
+                                        .frame(minHeight: 100, idealHeight: 150, maxHeight: 200)
+                                        .scrollContentBackground(.hidden)
+                                        .padding(10)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .fill(Color.orangeTabbyLight.opacity(0.7))
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 8)
+                                                        .stroke(isSystemPromptFocused ? Color.orangeTabbyAccent : Color.orangeTabbyDark.opacity(0.4), lineWidth: isSystemPromptFocused ? 2 : 1)
+                                                )
+                                        )
+                                        .focused($isSystemPromptFocused)
+                                        .onSubmit { isSystemPromptFocused = false }
+                                        .id("systemPromptEditor")
+                                        .onChange(of: isSystemPromptFocused) { _, focused in
+                                            if focused {
+                                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                                    withAnimation(.easeInOut(duration: 0.3)) {
+                                                        proxy.scrollTo("systemPromptEditor", anchor: .center)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        .foregroundColor(Color.orangeTabbyText)
+                                        .layoutPriority(1)
                                 }
+
+                                // User Message Prompt
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text("User Prompt")
+                                        .font(.headline)
+                                        .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+
+                                    TextEditor(text: $userMessagePrompt)
+                                        .frame(minHeight: 44, idealHeight: 60, maxHeight: 100)
+                                        .scrollContentBackground(.hidden)
+                                        .padding(10)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .fill(Color.orangeTabbyLight.opacity(0.7))
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 8)
+                                                        .stroke(isUserMessagePromptFocused ? Color.orangeTabbyAccent : Color.orangeTabbyDark.opacity(0.4), lineWidth: isUserMessagePromptFocused ? 2 : 1)
+                                                )
+                                        )
+                                        .focused($isUserMessagePromptFocused)
+                                        .onSubmit { isUserMessagePromptFocused = false }
+                                        .id("userMessagePromptEditor")
+                                        .onChange(of: isUserMessagePromptFocused) { _, focused in
+                                            if focused {
+                                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                                    withAnimation(.easeInOut(duration: 0.3)) {
+                                                        proxy.scrollTo("userMessagePromptEditor", anchor: .center)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        .foregroundColor(Color.orangeTabbyText)
+                                        .layoutPriority(1)
+                                }
+
+                                customGeminiSettingsSection(proxy: proxy)
+
+                                // AI Thinking Level picker
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Thinking")
+                                        .font(.headline)
+                                        .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+
+                                    Picker("Thinking Level", selection: $thinkingLevel) {
+                                        ForEach(GeminiThinkingLevel.allCases) { level in
+                                            Text(level.displayName)
+                                                .foregroundColor(Color.black)
+                                                .tag(level)
+                                        }
+                                    }
+                                    .pickerStyle(MenuPickerStyle())
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .frame(height: 46)
+                                    .padding(.horizontal, 12)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(Color.orangeTabbyLight.opacity(0.7))
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 8)
+                                                    .stroke(Color.orangeTabbyDark.opacity(0.4), lineWidth: 1)
+                                            )
+                                    )
+                                    .tint(Color.black)
+                                    .onChange(of: thinkingLevel) { _, _ in Haptic.lightImpact() }
+
+                                    Text("Higher levels improve reasoning but increase latency and cost. Off or Minimal recommended for OCR.")
+                                        .font(.caption)
+                                        .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+                                }
+                                .padding(.top, 8)
+
+                                apiEndpointSection(proxy: proxy)
+                            }
                         }
-                        .padding(.top, 8) // Add consistent spacing to match General tab
                     } else {
                         // Local (Vision) explanation
                         localVisionExplanationSection
-                    }
-                    
-                    // Vision settings section - show when Vision is selected
-                    if textExtractorService == .vision {
-                        visionSettingsSection(proxy: proxy)
                     }
                     
                     Spacer(minLength: 40)
@@ -445,7 +551,8 @@ struct SettingsView: View {
                 .padding()
             }
             .scrollDismissesKeyboard(.interactively)
-            .animation(.easeInOut, value: textExtractorService) // Animate changes when Vision section appears/disappears
+            .animation(.easeInOut, value: textExtractorService)
+            .animation(.easeInOut(duration: 0.3), value: useCustomSettings)
             .refreshable {
                 // Only refresh if not already refreshing and API key is available
                 guard !isRefreshingModels && !apiKey.isEmpty else { return }
@@ -531,18 +638,21 @@ struct SettingsView: View {
                 // Links Section
                 VStack(spacing: 20) {
                     Button("Performance Logs") {
+                        Haptic.lightImpact(0.6)
                         showingPerformanceLogs = true
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(Color.orangeTabbyAccent)
-                    
+
                     Button("How to get an API Key") {
+                        Haptic.lightImpact(0.6)
                         showApiKeyOnboarding()
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(Color.orangeTabbyAccent)
-                    
+
                     Button("Help & Documentation") {
+                        Haptic.lightImpact(0.6)
                         if let url = URL(string: "https://www.daviddegner.com/blog/cat-scribe/") {
                             openURL(url)
                         }
@@ -551,6 +661,7 @@ struct SettingsView: View {
                     .tint(Color.orangeTabbyAccent)
 
                     Button("Contact Support") {
+                        Haptic.lightImpact(0.6)
                         if let url = URL(string: "mailto:David@DavidDegner.com") {
                             openURL(url)
                         }
@@ -561,6 +672,7 @@ struct SettingsView: View {
 
                 // Reset to Default Settings Button
                 Button("Reset to Default Settings") {
+                    Haptic.warning()
                     showResetConfirmation = true
                 }
                 .buttonStyle(.bordered)
@@ -569,6 +681,7 @@ struct SettingsView: View {
                 .alert("Reset Settings", isPresented: $showResetConfirmation) {
                     Button("Cancel", role: .cancel) { }
                     Button("Reset", role: .destructive) {
+                        Haptic.warning()
                         resetToDefaults()
                     }
                 } message: {
@@ -586,15 +699,72 @@ struct SettingsView: View {
 
     // MARK: - Section Views
     
+    // MARK: - API Key Section (shown at top level for Gemini)
     @ViewBuilder
-    private func geminiSettingsSection(proxy: ScrollViewProxy) -> some View {
+    private func apiKeySection(proxy: ScrollViewProxy) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("API Key")
+                .font(.headline)
+                .foregroundColor(Color.orangeTabbyText.opacity(0.7))
+
+            HStack(spacing: 12) {
+                SecureField(apiKeyPlaceholderText, text: $apiKey)
+                    .textContentType(.password)
+                    .frame(height: 46)
+                    .padding(.horizontal, 12)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.orangeTabbyLight.opacity(0.7)))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(isApiKeyFocused ? Color.orangeTabbyAccent : (apiKey.isEmpty ? Color.red : Color.orangeTabbyDark.opacity(0.4)), lineWidth: isApiKeyFocused || apiKey.isEmpty ? 2:1 ))
+                    .layoutPriority(1)
+                    .focused($isApiKeyFocused)
+                    .onSubmit { isApiKeyFocused = false }
+                    .id("apiKey")
+                    .onChange(of: isApiKeyFocused) { _, focused in
+                        if focused {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    proxy.scrollTo("apiKey", anchor: .center)
+                                }
+                            }
+                        } else {
+                            saveApiKey()
+                        }
+                    }
+                    .foregroundColor(Color.orangeTabbyText)
+                Button(action: { Haptic.lightImpact(0.6); saveApiKey() }) {
+                    Image(systemName: "checkmark.circle.fill")
+                }
+                .buttonStyle(.bordered)
+                .tint(Color.orangeTabbyAccent)
+                .disabled(apiKey.isEmpty)
+                .accessibilityLabel("Save API Key")
+                .accessibilityHint("Saves the API key securely to the keychain")
+            }
+
+            if !apiKeyStatusMessage.isEmpty {
+                HStack {
+                    Spacer()
+                    Text(apiKeyStatusMessage)
+                        .font(.caption)
+                        .foregroundColor(apiKeyStatusMessage.contains("Saved") ? Color.black : .red)
+                }
+            }
+
+            Link("Get a free key at aistudio.google.com/apikey",
+                 destination: URL(string: "https://aistudio.google.com/apikey")!)
+                .font(.caption)
+                .foregroundColor(Color.orangeTabbyAccent)
+        }
+    }
+
+    // MARK: - Custom Gemini Settings (Model + Photo Token Budget)
+    @ViewBuilder
+    private func customGeminiSettingsSection(proxy: ScrollViewProxy) -> some View {
         // Model selection
         VStack(alignment: .leading, spacing: 12) {
             Text("Model")
                 .font(.headline)
                 .foregroundColor(Color.orangeTabbyText.opacity(0.7))
-            
-            // Show error if models refresh failed
+
             if let error = modelsRefreshError {
                 Text(error)
                     .font(.caption)
@@ -606,10 +776,8 @@ struct SettingsView: View {
                             .fill(Color.red.opacity(0.1))
                     )
             }
-            
-            // Model picker with refresh button beside it
+
             HStack(spacing: 12) {
-                // Replace ScrollView with Picker dropdown
                 Picker("Select AI Model", selection: $selectedModelId) {
                     ForEach(availableModels, id: \.self) { model in
                         Text(model)
@@ -630,9 +798,12 @@ struct SettingsView: View {
                         )
                 )
                 .tint(Color.black)
-                
-                // Refresh button beside the dropdown
-                Button(action: refreshModels) {
+                .onChange(of: selectedModelId) { _, _ in Haptic.lightImpact() }
+
+                Button(action: {
+                    Haptic.lightImpact(0.6)
+                    refreshModels()
+                }) {
                     if isRefreshingModels {
                         ProgressView()
                             .scaleEffect(0.8)
@@ -674,86 +845,36 @@ struct SettingsView: View {
                         )
                 )
                 .tint(Color.black)
+                .onChange(of: geminiPhotoTokenBudget) { _, _ in Haptic.lightImpact() }
 
                 Text("Gemini 3 only. Higher budgets improve detail but can increase latency and cost.")
                     .font(.caption)
                     .foregroundColor(Color.orangeTabbyText.opacity(0.7))
             }
         }
-        
-        // API Key
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Key")
-                .font(.headline)
-                .foregroundColor(Color.orangeTabbyText.opacity(0.7))
-            
-            HStack(spacing: 12) {
-                SecureField(apiKeyPlaceholderText, text: $apiKey)
-                    .textContentType(.password)
-                    // .cardStyled(isError: apiKey.isEmpty)
-                    .frame(height: 46)
-                    .padding(.horizontal, 12)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.orangeTabbyLight.opacity(0.7)))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(isApiKeyFocused ? Color.orangeTabbyAccent : (apiKey.isEmpty ? Color.red : Color.orangeTabbyDark.opacity(0.4)), lineWidth: isApiKeyFocused || apiKey.isEmpty ? 2:1 ))
-                    .layoutPriority(1)
-                    .focused($isApiKeyFocused)
-                    .onSubmit { isApiKeyFocused = false }
-                    .id("apiKey")
-                    .onChange(of: isApiKeyFocused) { _, focused in
-                        if focused {
-                            // Add a small delay to ensure keyboard is shown first
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                withAnimation(.easeInOut(duration: 0.3)) {
-                                    proxy.scrollTo("apiKey", anchor: .center)
-                                }
-                            }
-                        } else { 
-                            saveApiKey() 
-                        }
-                    }
-                    .foregroundColor(Color.orangeTabbyText)
-                Button(action: { saveApiKey() }) {
-                    Image(systemName: "checkmark.circle.fill")
-                }
-                .buttonStyle(.bordered)
-                .tint(Color.orangeTabbyAccent)
-                .disabled(apiKey.isEmpty)
-                .accessibilityLabel("Save API Key")
-                .accessibilityHint("Saves the API key securely to the keychain")
-            }
-            
-            if !apiKeyStatusMessage.isEmpty {
-                HStack {
-                    Spacer()
-                    Text(apiKeyStatusMessage)
-                        .font(.caption)
-                        .foregroundColor(apiKeyStatusMessage.contains("Saved") ? Color.black : .red)
-                }
-            }
-            
+    }
 
-        }
-        
-        // API Endpoint URL and Test Connection
+    // MARK: - API Endpoint Section
+    @ViewBuilder
+    private func apiEndpointSection(proxy: ScrollViewProxy) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("AI Endpoint")
                 .font(.headline)
                 .foregroundColor(Color.orangeTabbyText.opacity(0.7))
-            
+
             HStack(spacing: 12) {
                 TextField(apiUrlPlaceholderText, text: $apiEndpointUrlString)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled(true)
                     .keyboardType(.URL)
                     .focused($isApiEndpointFocused)
-                    .onSubmit { 
+                    .onSubmit {
                         isApiEndpointFocused = false
                         validateApiEndpointUrl()
                     }
                     .id("apiEndpoint")
                     .onChange(of: isApiEndpointFocused) { _, focused in
                         if focused {
-                            // Add a small delay to ensure keyboard is shown first
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                 withAnimation(.easeInOut(duration: 0.3)) {
                                     proxy.scrollTo("apiEndpoint", anchor: .center)
@@ -761,14 +882,13 @@ struct SettingsView: View {
                             }
                         }
                     }
-                    // .cardStyled(isError: apiUrlHasError)
                     .frame(height: 46)
                     .padding(.horizontal, 12)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Color.orangeTabbyLight.opacity(0.7)))
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(isApiEndpointFocused ? Color.orangeTabbyAccent : (apiUrlHasError ? Color.red : Color.orangeTabbyDark.opacity(0.4)), lineWidth: isApiEndpointFocused || apiUrlHasError ? 2:1 ))
                     .layoutPriority(1)
                     .foregroundColor(Color.orangeTabbyText)
-                Button(action: { if connectionStatus != .testing { testConnection() } }) {
+                Button(action: { if connectionStatus != .testing { Haptic.lightImpact(0.6); testConnection() } }) {
                     Image(systemName: "network")
                 }
                 .buttonStyle(.bordered)
@@ -777,14 +897,14 @@ struct SettingsView: View {
                 .accessibilityLabel("Test Connection")
                 .accessibilityHint("Tests the connection to the API endpoint")
             }
-            
+
             if !connectionStatusMessage.isEmpty {
                 HStack {
                     Spacer()
                     Text(connectionStatusMessage)
                         .font(.caption)
                         .foregroundColor(connectionStatus == .failure ? .red : Color.black)
-                    
+
                     if connectionStatus == .failure {
                         Button("Clear") {
                             clearConnectionStatus()
@@ -797,62 +917,26 @@ struct SettingsView: View {
         }
     }
     
-    @ViewBuilder
-    private func visionSettingsSection(proxy: ScrollViewProxy) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            // Description removed
-        }
-        .padding(.top, 8)
-        // Note: Removed .onAppear that was incorrectly resetting user settings
-        // @AppStorage properties already persist correctly
-    }
-    
-    @ViewBuilder
     private var localVisionExplanationSection: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            // Header
-            HStack {
-                Image(systemName: "apple.logo")
-                    .foregroundColor(Color.orangeTabbyAccent)
-                    .font(.title2)
-                Text("Apple Vision")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                    .foregroundColor(Color.orangeTabbyText)
-            }
-            
-            // Explanation content
+        settingsCard(icon: "apple.logo", title: "Apple Vision") {
             VStack(alignment: .leading, spacing: 16) {
                 explanationItem(
                     icon: "exclamationmark.triangle.fill",
                     title: "Lower Quality",
                     description: "Basic text recognition with limited accuracy, especially poor with handwritten text. Best for printed text only."
                 )
-                
                 explanationItem(
                     icon: "bolt.fill",
                     title: "Fast & Offline",
                     description: "Works instantly without internet connection. No API keys, accounts, or setup required."
                 )
-                
                 explanationItem(
                     icon: "lock.shield.fill",
                     title: "Private & Secure",
                     description: "Text recognition happens entirely on your device. Your images never leave your phone."
                 )
-                
-
             }
         }
-        .padding(20)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.orangeTabbyLight.opacity(0.3))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.orangeTabbyAccent.opacity(0.3), lineWidth: 1)
-        )
     }
     
     @ViewBuilder
@@ -876,27 +960,47 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Helper Functions
-    
-    // Update prompt based on thinking toggle - now just ensures prompt is clean
-    private func updatePromptForThinking(enabled: Bool) {
-        let basePrompt = GeminiService.defaultPrompt
-        
-        // Only reset to base prompt if it contains thinking directives or is empty
-        // This preserves user customizations while cleaning up old thinking directives
-        if userPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || 
-           userPrompt.contains("THINKING:") || userPrompt.contains("REASONING:") || userPrompt.contains("PLANNING:") {
-            userPrompt = basePrompt
+    // MARK: - Reusable Card Container
+    @ViewBuilder
+    private func settingsCard<Content: View>(
+        icon: String, title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack {
+                Image(systemName: icon)
+                    .foregroundColor(Color.orangeTabbyAccent)
+                    .font(.title2)
+                Text(title)
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .foregroundColor(Color.orangeTabbyText)
+            }
+            content()
         }
-        // If user has a custom prompt without thinking directives, preserve it
+        .padding(20)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color.orangeTabbyLight.opacity(0.3)))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.orangeTabbyAccent.opacity(0.3), lineWidth: 1))
     }
-    
-    // Initialize prompt to match thinking toggle state on first launch
+
+    @ViewBuilder
+    private func settingsCardPlain<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 20) {
+            content()
+        }
+        .padding(20)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color.orangeTabbyLight.opacity(0.3)))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.orangeTabbyAccent.opacity(0.3), lineWidth: 1))
+    }
+
+    // MARK: - Helper Functions
+
+    // Clean up old thinking directives from prompt on first launch
     private func initializePromptForThinkingState() {
-        // If prompt is empty or contains old thinking directives, reset to clean base prompt
-        if userPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || 
-           userPrompt.contains("THINKING:") || userPrompt.contains("REASONING:") || userPrompt.contains("PLANNING:") {
-            updatePromptForThinking(enabled: thinkingEnabled)
+        if userPrompt.contains("THINKING:") || userPrompt.contains("REASONING:") || userPrompt.contains("PLANNING:") {
+            userPrompt = GeminiService.defaultPrompt
         }
     }
 
@@ -998,7 +1102,7 @@ struct SettingsView: View {
 
     // Reset settings to defaults
     private func resetToDefaults() {
-        selectedModelId = "gemini-2.5-flash-lite"
+        selectedModelId = "gemini-3.1-flash-lite-preview"
         apiEndpointUrlString = "https://generativelanguage.googleapis.com/v1beta/models/"
         draftsTag = "notebook"
         photoFolderName = "notebook" // Updated from savePhotosToAlbum
@@ -1008,13 +1112,18 @@ struct SettingsView: View {
         visionRecognitionLevel = .accurate
         visionUsesLanguageCorrection = true
         // Reset AI thinking setting
-        thinkingEnabled = false
+        thinkingLevel = .none
+        // Reset user message prompt
+        userMessagePrompt = GeminiService.defaultUserMessagePrompt
         // Reset Gemini 3 photo token budget setting
-        geminiPhotoTokenBudget = .high
+        geminiPhotoTokenBudget = .medium
         // Reset text extractor service to default
         textExtractorService = .vision
         // Force reset prompt to the current default prompt
         userPrompt = GeminiService.defaultPrompt
+        // Reset scan mode settings
+        useCustomSettings = false
+        UserDefaults.standard.set(ScanMode.fast.rawValue, forKey: SettingsKey.scanMode)
         // Note: API key is not reset as it's sensitive information
     }
 

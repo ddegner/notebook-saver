@@ -31,10 +31,13 @@
 			<key>CFBundleTypeName</key>
 			<string>Image</string>
 			<key>LSHandlerRank</key>
-			<string>Default</string>
+			<string>Alternate</string>
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>public.image</string>
+				<string>public.jpeg</string>
+				<string>public.png</string>
+				<string>public.heic</string>
 			</array>
 			<key>NSUbiquitousContainers</key>
 			<dict/>

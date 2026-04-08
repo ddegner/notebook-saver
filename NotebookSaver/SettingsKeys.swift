@@ -7,9 +7,12 @@ enum SettingsKey {
     static let selectedModelId = "selectedModelId"
     static let userPrompt = "userPrompt"
     static let apiEndpointUrlString = "apiEndpointUrlString"
-    static let thinkingEnabled = "thinkingEnabled"
+    static let thinkingLevel = "thinkingLevel"
+    static let userMessagePrompt = "userMessagePrompt"
     static let textExtractorService = "textExtractorService"
     static let geminiPhotoTokenBudget = "geminiPhotoTokenBudget"
+    static let scanMode = "scanMode"
+    static let useCustomSettings = "useCustomSettings"
     
     // MARK: - Vision Settings
     static let visionRecognitionLevel = "visionRecognitionLevel"
