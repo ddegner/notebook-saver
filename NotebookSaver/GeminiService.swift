@@ -73,6 +73,16 @@ class GeminiService: ImageTextExtractor {
     // Track if connection has been verified to avoid redundant warm-ups
     nonisolated(unsafe) private static var connectionVerified = false
 
+    /// Creates a fresh URLSession with its own connection pool.
+    /// Each session gets an independent HTTP/2 connection, avoiding the problem
+    /// where a hung stream on a shared connection blocks all subsequent requests.
+    private static func makeEphemeralSession(timeoutInterval: TimeInterval = 60) -> URLSession {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = timeoutInterval
+        config.timeoutIntervalForResource = timeoutInterval
+        return URLSession(configuration: config)
+    }
+
     // Defaults
     private let defaultModelId = "gemini-3.1-flash-lite-preview" // Default model if nothing is set
     static let defaultPrompt = """
@@ -179,21 +189,35 @@ class GeminiService: ImageTextExtractor {
     // MARK: - Connection Warming
 
     public static func warmUpConnection() async -> Bool {
-        let apiKey = KeychainService.loadAPIKey()
-        let endpointString = SharedDefaults.suite.string(forKey: SettingsKey.apiEndpointUrlString) ?? defaultApiEndpoint
-        
-        guard let apiBaseUrl = URL(string: endpointString) else { return false }
-        guard let key = apiKey, !key.isEmpty else { return false }
-        guard let finalUrl = buildURLWithAPIKey(baseURL: apiBaseUrl, apiKey: key) else { return false }
+        let settings = getSettings()
+        guard let apiKey = settings.apiKey, !apiKey.isEmpty else { return false }
+        guard let apiBaseUrl = settings.apiEndpointUrl else { return false }
+        guard let model = settings.modelToUse else { return false }
+
+        // Send a minimal generateContent request to the actual model endpoint.
+        // This warms DNS + TLS + Google's model serving backend, so the first
+        // real photo request doesn't hit a cold start.
+        let requestUrl = apiBaseUrl.appendingPathComponent("\(model):generateContent")
+        guard let finalUrl = buildURLWithAPIKey(baseURL: requestUrl, apiKey: apiKey) else { return false }
 
         var request = URLRequest(url: finalUrl)
-        request.httpMethod = "GET"
+        request.httpMethod = "POST"
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 10.0
 
+        // Tiny text-only request — no image, minimal tokens
+        let body: [String: Any] = [
+            "contents": [["parts": [["text": "hi"]]]],
+            "generationConfig": ["maxOutputTokens": 1]
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let session = makeEphemeralSession(timeoutInterval: 10)
+            defer { session.finishTasksAndInvalidate() }
+            let (_, response) = try await session.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else { return false }
-            
+
             connectionVerified = (200...299).contains(httpResponse.statusCode)
             return connectionVerified
         } catch {
@@ -353,7 +377,8 @@ class GeminiService: ImageTextExtractor {
         var request = URLRequest(url: finalUrl)
         request.httpMethod = "POST"
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 60.0
+        // Don't set timeoutInterval here — let the ephemeral session's timeout control it.
+        // Setting it on the URLRequest overrides the session configuration.
 
         let requestBody = createRequestBody(
             systemPrompt: systemPrompt,
@@ -383,12 +408,6 @@ class GeminiService: ImageTextExtractor {
     }
     
     // MARK: - Network Request Helper
-    
-    // Hard deadline for the API request — URLRequest.timeoutInterval only covers idle time,
-    // so a server that trickles data can keep the request alive indefinitely.
-    // Flash-lite normally responds in 2-4s; 30s is generous enough for retries while
-    // preventing the 40s-1800s stalls seen in production logs.
-    private static let requestDeadline: TimeInterval = 30.0
 
     private func performRequest(
         request: URLRequest,
@@ -397,6 +416,7 @@ class GeminiService: ImageTextExtractor {
         modelInfoConfiguration: [String: String],
         imageMetadata: ImageMetadata
     ) async throws -> (Data, URLResponse) {
+        let sendableRequest = request
         if let sessionId = sessionId {
             let modelInfo = ModelInfo(
                 serviceName: "Gemini",
@@ -405,40 +425,56 @@ class GeminiService: ImageTextExtractor {
                 imageMetadata: imageMetadata
             )
 
-            let deadline = Self.requestDeadline
             return try await PerformanceLogger.shared.measureOperation(
                 "Gemini API Request (\(model))",
                 sessionId: sessionId,
                 modelInfo: modelInfo
             ) {
-                try await GeminiService.withDeadline(deadline) {
-                    try await URLSession.shared.data(for: request)
+                try await GeminiService.hedgedRequest { session in
+                    try await session.data(for: sendableRequest)
                 }
             }
         } else {
-            return try await GeminiService.withDeadline(Self.requestDeadline) {
-                try await URLSession.shared.data(for: request)
+            return try await GeminiService.hedgedRequest { session in
+                try await session.data(for: sendableRequest)
             }
         }
     }
 
-    /// Runs an async operation with a hard timeout, cancelling if the deadline is exceeded.
-    private static func withDeadline<T: Sendable>(
-        _ timeout: TimeInterval,
-        operation: @escaping @Sendable () async throws -> T
+    /// Hedged request: fires staggered attempts on independent connections.
+    /// Attempt 0 starts immediately, attempt 1 after `staggerDelay`, attempt 2 after `2 * staggerDelay`.
+    /// All tasks are launched into the group concurrently — the stagger delay lives inside each task.
+    /// Whichever completes first wins; the rest are cancelled.
+    private static func hedgedRequest<T: Sendable>(
+        staggerDelay: TimeInterval = 6.0,
+        maxAttempts: Int = 3,
+        operation: @escaping @Sendable (URLSession) async throws -> T
     ) async throws -> T {
         try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask {
-                try await operation()
+            for attempt in 0..<maxAttempts {
+                let delay = TimeInterval(attempt) * staggerDelay
+                group.addTask {
+                    if delay > 0 {
+                        try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                    }
+                    let session = makeEphemeralSession(timeoutInterval: 20)
+                    defer { session.invalidateAndCancel() }
+                    return try await operation(session)
+                }
             }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                throw APIError.networkError(URLError(.timedOut))
+
+            // First success wins; failures are collected in case all fail
+            var lastError: Error = APIError.networkError(URLError(.timedOut))
+            while let result = try? await group.nextResult() {
+                switch result {
+                case .success(let value):
+                    group.cancelAll()
+                    return value
+                case .failure(let error):
+                    lastError = error
+                }
             }
-            // First to finish wins; cancel the other
-            let result = try await group.next()!
-            group.cancelAll()
-            return result
+            throw lastError
         }
     }
     
@@ -496,6 +532,273 @@ class GeminiService: ImageTextExtractor {
         return try await attemptExtractText(from: processedImage, sessionId: sessionId)
     }
 
+    // MARK: - Streaming Extraction
+
+    func extractTextStream(from processedImage: UIImage, sessionId: UUID?) async -> AsyncThrowingStream<String, Error> {
+        // Prepare the request eagerly (image resize, base64 encode) before entering the stream.
+        // This avoids capturing `self` in a @Sendable closure.
+        let prepared: StreamingRequestData
+        do {
+            prepared = try await prepareStreamingRequest(from: processedImage, sessionId: sessionId)
+        } catch {
+            let capturedError = error
+            return AsyncThrowingStream { $0.finish(throwing: capturedError) }
+        }
+
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    try await Self.hedgedStreamingRequest(prepared, continuation: continuation)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// All Sendable data needed to execute a streaming request without holding `self`.
+    private struct StreamingRequestData: Sendable {
+        let request: URLRequest
+        let model: String
+        let sessionId: UUID?
+    }
+
+    private func prepareStreamingRequest(from originalUIImage: UIImage, sessionId: UUID?) async throws -> StreamingRequestData {
+        let settings = GeminiService.getSettings()
+
+        guard let apiKey = settings.apiKey, !apiKey.isEmpty else {
+            throw APIError.missingApiKey
+        }
+        guard let apiBaseUrl = settings.apiEndpointUrl else {
+            throw APIError.invalidApiEndpoint(settings.apiEndpointUrl?.absoluteString ?? "<empty>")
+        }
+        guard let model = settings.modelToUse else {
+            throw APIError.missingModelConfiguration
+        }
+        // For streaming, replace the JSON instruction with plain text output.
+        // The prompt may be the default (with JSON line) or user-customized.
+        let systemPrompt = settings.systemPrompt
+            .replacingOccurrences(
+                of: "- Return a JSON object with a single key \"lines\" containing an array of strings, one per line of text.",
+                with: "- Return plain text with one line of transcribed text per line. Do not wrap in JSON or any other format."
+            )
+        let userMessagePrompt = settings.userMessagePrompt
+        let thinkingLevel = settings.thinkingLevel
+        let photoTokenBudget = settings.photoTokenBudget
+
+        var modelInfoConfiguration = [
+            "thinking_level": thinkingLevel.rawValue,
+            "endpoint": apiBaseUrl.absoluteString
+        ]
+        if isGemini3Model(model) {
+            modelInfoConfiguration["photo_token_budget"] = photoTokenBudget.rawValue
+        }
+
+        let jpegQuality: CGFloat = 0.50
+        let prepTimingToken = sessionId.flatMap { PerformanceLogger.shared.startTiming("Gemini Image Preparation", sessionId: $0) }
+        let base64ImageString: String
+        do {
+            let originalSize = originalUIImage.size
+            let originalFileSizeBytes = Int(originalSize.width * originalSize.height) * 3
+
+            let originalW = max(originalSize.width, CGFloat(1))
+            let originalH = max(originalSize.height, CGFloat(1))
+            let longEdge = targetImageLongEdge
+
+            let targetW: CGFloat
+            let targetH: CGFloat
+            if originalW >= originalH {
+                targetW = longEdge
+                targetH = max(CGFloat(1), floor(longEdge * (originalH / originalW)))
+            } else {
+                targetH = longEdge
+                targetW = max(CGFloat(1), floor(longEdge * (originalW / originalH)))
+            }
+
+            let resizedUIImage = try imageProcessor.resizeImageToDimensions(originalUIImage, targetWidth: targetW, targetHeight: targetH)
+
+            guard let preparedImageData = resizedUIImage.jpegData(compressionQuality: jpegQuality) else {
+                throw PreprocessingError.encodingFailed(nil)
+            }
+
+            let processedPixelWidth = resizedUIImage.cgImage?.width ?? Int(resizedUIImage.size.width * resizedUIImage.scale)
+            let processedPixelHeight = resizedUIImage.cgImage?.height ?? Int(resizedUIImage.size.height * resizedUIImage.scale)
+
+            let localImageMetadata = ImageMetadata(
+                originalWidth: originalSize.width,
+                originalHeight: originalSize.height,
+                processedWidth: CGFloat(processedPixelWidth),
+                processedHeight: CGFloat(processedPixelHeight),
+                originalFileSizeBytes: originalFileSizeBytes,
+                processedFileSizeBytes: preparedImageData.count,
+                compressionQuality: jpegQuality,
+                imageFormat: "JPEG"
+            )
+            base64ImageString = preparedImageData.base64EncodedString()
+
+            if let prepTimingToken {
+                let prepModelInfo = ModelInfo(
+                    serviceName: "Gemini",
+                    modelName: model,
+                    configuration: modelInfoConfiguration,
+                    imageMetadata: localImageMetadata
+                )
+                PerformanceLogger.shared.endTiming(prepTimingToken, modelInfo: prepModelInfo, success: true)
+            }
+        } catch {
+            if let prepTimingToken {
+                PerformanceLogger.shared.endTiming(prepTimingToken, error: error)
+            }
+            throw error
+        }
+
+        // Build streaming URL
+        let requestUrl = apiBaseUrl.appendingPathComponent("\(model):streamGenerateContent")
+        guard var urlComponents = URLComponents(url: requestUrl, resolvingAgainstBaseURL: false) else {
+            throw APIError.invalidApiEndpoint("Failed to build streaming URL")
+        }
+        urlComponents.queryItems = [
+            URLQueryItem(name: "key", value: apiKey),
+            URLQueryItem(name: "alt", value: "sse")
+        ]
+        guard let finalUrl = urlComponents.url else {
+            throw APIError.invalidApiEndpoint("Failed to build streaming URL")
+        }
+
+        var request = URLRequest(url: finalUrl)
+        request.httpMethod = "POST"
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Don't set timeoutInterval here — let the ephemeral session's timeout control it.
+
+        let requestBody = createRequestBody(
+            systemPrompt: systemPrompt,
+            userMessagePrompt: userMessagePrompt,
+            base64Image: base64ImageString,
+            thinkingLevel: thinkingLevel,
+            model: model,
+            photoTokenBudget: photoTokenBudget,
+            streaming: true
+        )
+        request.httpBody = try JSONEncoder().encode(requestBody)
+
+        return StreamingRequestData(request: request, model: model, sessionId: sessionId)
+    }
+
+    /// Hedged streaming: races staggered attempts to get a responding byte stream,
+    /// then the winner exclusively consumes SSE data. Losers are cancelled.
+    ///
+    /// Uses a `StreamClaim` actor to ensure only one attempt yields to the continuation,
+    /// preventing duplicate text if multiple attempts connect before the first finishes.
+    private static func hedgedStreamingRequest(
+        _ data: StreamingRequestData,
+        continuation: AsyncThrowingStream<String, Error>.Continuation,
+        staggerDelay: TimeInterval = 6.0,
+        maxAttempts: Int = 3
+    ) async throws {
+        let timingToken = data.sessionId.flatMap {
+            PerformanceLogger.shared.startTiming(
+                "Gemini API Request (\(data.model))",
+                sessionId: $0
+            )
+        }
+
+        let claim = StreamClaim()
+
+        do {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for attempt in 0..<maxAttempts {
+                    let delay = TimeInterval(attempt) * staggerDelay
+                    group.addTask {
+                        if delay > 0 {
+                            try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                        }
+                        let session = makeEphemeralSession(timeoutInterval: 20)
+                        defer { session.invalidateAndCancel() }
+
+                        let (bytes, response) = try await session.bytes(for: data.request)
+                        guard let httpResponse = response as? HTTPURLResponse else {
+                            throw APIError.networkError(URLError(.badServerResponse))
+                        }
+                        guard (200...299).contains(httpResponse.statusCode) else {
+                            var errorData = Data()
+                            for try await byte in bytes { errorData.append(byte) }
+                            throw Self.httpError(
+                                statusCode: httpResponse.statusCode,
+                                body: String(data: errorData, encoding: .utf8),
+                                model: data.model
+                            )
+                        }
+
+                        // First attempt to get a 200 claims exclusive streaming rights
+                        guard await claim.tryClaim() else {
+                            // Another attempt already won — exit quietly
+                            throw CancellationError()
+                        }
+
+                        // Winner: consume SSE and yield to continuation
+                        let decoder = JSONDecoder()
+                        for try await line in bytes.lines {
+                            try Task.checkCancellation()
+                            guard line.hasPrefix("data: ") else { continue }
+                            let jsonString = String(line.dropFirst(6))
+                            guard !jsonString.isEmpty,
+                                  let jsonData = jsonString.data(using: .utf8),
+                                  let chunk = try? decoder.decode(GeminiResponse.self, from: jsonData)
+                            else { continue }
+
+                            let texts = chunk.candidates?.first?.content?.parts?.compactMap(\.text) ?? []
+                            for text in texts where !text.isEmpty {
+                                continuation.yield(text)
+                            }
+                        }
+                    }
+                }
+
+                // Wait for the claimed winner to complete; ignore loser failures
+                var lastError: Error = APIError.networkError(URLError(.timedOut))
+                while let result = try? await group.nextResult() {
+                    switch result {
+                    case .success:
+                        group.cancelAll()
+                        if let timingToken {
+                            PerformanceLogger.shared.endTiming(timingToken, success: true)
+                        }
+                        return
+                    case .failure(let error):
+                        if !(error is CancellationError) {
+                            lastError = error
+                        }
+                    }
+                }
+                throw lastError
+            }
+        } catch {
+            if let timingToken {
+                PerformanceLogger.shared.endTiming(timingToken, error: error)
+            }
+            throw error
+        }
+    }
+
+    /// Maps HTTP status codes to APIError.
+    private static func httpError(statusCode: Int, body: String?, model: String) -> APIError {
+        switch statusCode {
+        case 400:
+            if let body, (body.contains("API_KEY_INVALID") || body.contains("API key expired")) {
+                return .apiKeyExpired
+            }
+            return .badRequest(body)
+        case 401, 403: return .authenticationError
+        case 404: return .modelNotFound(model)
+        case 429: return .rateLimitExceeded
+        case 503: return .serviceUnavailable
+        case 500...599: return .serverError(statusCode)
+        default: return .unknownError(statusCode)
+        }
+    }
+
     // MARK: - Request Body Construction
 
     private func createRequestBody(
@@ -504,7 +807,8 @@ class GeminiService: ImageTextExtractor {
         base64Image: String,
         thinkingLevel: GeminiThinkingLevel,
         model: String,
-        photoTokenBudget: GeminiPhotoTokenBudget
+        photoTokenBudget: GeminiPhotoTokenBudget,
+        streaming: Bool = false
     ) -> GeminiRequest {
         // Image part first, then user message (Google's recommended order)
         let imagePart = GeminiRequest.Part(inlineData: GeminiRequest.Part.InlineData(mimeType: "image/jpeg", data: base64Image))
@@ -532,8 +836,9 @@ class GeminiService: ImageTextExtractor {
         let temperature: Double = 0.0
 
         // JSON structured output for clean line-by-line transcription
-        // Only used when thinking is off — thinking models may not support response_mime_type
-        let responseMimeType: String? = (thinkingConfig == nil) ? "application/json" : nil
+        // Only used when thinking is off AND not streaming — streaming delivers partial JSON
+        // fragments that can't be parsed incrementally, so we use plain text for streaming.
+        let responseMimeType: String? = (!streaming && thinkingConfig == nil) ? "application/json" : nil
 
         let generationConfig = GeminiRequest.GenerationConfig(
             thinkingConfig: thinkingConfig,
@@ -592,6 +897,19 @@ class GeminiService: ImageTextExtractor {
         return modelLower.hasPrefix("gemini-3")
     }
 
+}
+
+// MARK: - Hedged Streaming Helpers
+
+/// Ensures only one hedged streaming attempt yields to the continuation.
+private actor StreamClaim {
+    private var claimed = false
+
+    func tryClaim() -> Bool {
+        if claimed { return false }
+        claimed = true
+        return true
+    }
 }
 
 // MARK: - Codable Structs for API Request/Response

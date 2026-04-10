@@ -13,7 +13,8 @@ struct CameraView: View {
     @State private var retryableImageData: Data?
     @State private var showRetryOption = false
     @State private var showApiKeyLink = false
-    @State private var currentQuote: (quote: String, author: String)?
+    @State private var streamedText: String = ""
+    @State private var isStreaming: Bool = false
     @State private var modeLabelText: String = ""
     @State private var showModeLabel: Bool = false
 
@@ -42,7 +43,8 @@ struct CameraView: View {
                     screenWidth: screenWidth,
                     cameraHeight: cameraHeight,
                     isLoading: isLoading,
-                    currentQuote: currentQuote
+                    streamedText: streamedText,
+                    isStreaming: isStreaming
                 )
                 .overlay(alignment: .bottom) {
                     if showModeLabel {
@@ -139,20 +141,21 @@ struct CameraPreviewArea: View {
     let screenWidth: CGFloat
     let cameraHeight: CGFloat
     let isLoading: Bool
-    let currentQuote: (quote: String, author: String)?
-    
+    let streamedText: String
+    let isStreaming: Bool
+
     var body: some View {
-            ZStack {
+        ZStack {
             CameraPreview(session: cameraManager.session, cameraManager: cameraManager)
-            .frame(width: screenWidth, height: cameraHeight)
-            .clipped() // Ensure camera preview doesn't overflow
-            .background(Color.black)
-            .onDisappear {
-                cameraManager.stopSession()
-            }
-            
+                .frame(width: screenWidth, height: cameraHeight)
+                .clipped()
+                .background(Color.black)
+                .onDisappear {
+                    cameraManager.stopSession()
+                }
+
             if isLoading {
-                LoadingOverlay(currentQuote: currentQuote)
+                StreamingTextOverlay(text: streamedText, isStreaming: isStreaming)
                     .transition(.opacity)
             }
         }
@@ -161,42 +164,29 @@ struct CameraPreviewArea: View {
     }
 }
 
-// MARK: - Loading Overlay Component
-struct LoadingOverlay: View {
-    let currentQuote: (quote: String, author: String)?
-    
-    var body: some View {
-        ZStack {
-            // Blurred camera preview overlay
-            Rectangle()
-                .fill(.ultraThinMaterial)
-            
-            // Quote overlay
-            VStack(spacing: 20) {
-                if let quote = currentQuote {
-                    VStack(spacing: 16) {
-                        Text(quote.quote)
-                            .font(.custom("Baskerville", size: 26))
-                            .multilineTextAlignment(.center)
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 30)
-                            .frame(maxWidth: .infinity)
+// MARK: - Streaming Text Overlay
+struct StreamingTextOverlay: View {
+    let text: String
+    let isStreaming: Bool
 
-                        Text("— \(quote.author)")
-                            .font(.custom("Baskerville", size: 20))
-                            .italic()
-                            .foregroundColor(.white.opacity(0.8))
-                            .padding(.top, 8)
-                    }
-                    .padding(.vertical, 30)
-                    .padding(.horizontal, 20)
-                } else {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        .scaleEffect(1.5)
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.5)) { timeline in
+            let cursorVisible = isStreaming && Int(timeline.date.timeIntervalSinceReferenceDate * 2) % 2 == 0
+            let cursorSuffix = cursorVisible ? "|" : ""
+
+            ZStack {
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+
+                ScrollView {
+                    Text(text + cursorSuffix)
+                        .font(.system(size: 13, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.9))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
                 }
+                .defaultScrollAnchor(.bottom)
             }
-            .padding(30)
         }
     }
 }
@@ -427,7 +417,8 @@ extension CameraView {
         showErrorAlert = false
         showRetryOption = false
         isLoading = true
-        currentQuote = notebookQuotes.randomElement()
+        streamedText = ""
+        isStreaming = true
 
         let sessionId = PerformanceLogger.shared.startSession()
         Task {
@@ -501,7 +492,8 @@ extension CameraView {
         generator.impactOccurred(intensity: 0.9)
         
         isLoading = true
-        currentQuote = notebookQuotes.randomElement()
+        streamedText = ""
+        isStreaming = true
         
         // Start performance logging session for the entire photo-to-note pipeline
         let sessionId = PerformanceLogger.shared.startSession()
@@ -610,7 +602,8 @@ extension CameraView {
             // Show loading overlay with quotes
             await MainActor.run {
                 isLoading = true
-                currentQuote = notebookQuotes.randomElement()
+                streamedText = ""
+        isStreaming = true
             }
             
             // Start performance logging
@@ -680,8 +673,9 @@ extension CameraView {
             PerformanceLogger.shared.endSession(sessionId, success: true)
 
             // 5. Single state update at the end - eliminates multiple MainActor calls
-            await MainActor.run { 
+            await MainActor.run {
                 isLoading = false
+                isStreaming = false
                 clearRetryState()
                 let notif = UINotificationFeedbackGenerator()
                 notif.prepare()
@@ -725,11 +719,34 @@ extension CameraView {
     }
     
     private func extractTextFromProcessedImage(_ processedImage: UIImage, sessionId: UUID) async throws -> String {
-        let extractedText = try await TextExtractionPipeline.extractText(from: processedImage, sessionId: sessionId)
+        let stream = await TextExtractionPipeline.extractTextStream(from: processedImage, sessionId: sessionId)
+        var fullText = ""
+        for try await chunk in stream {
+            fullText += chunk
+            await MainActor.run {
+                streamedText = fullText
+            }
+        }
+        // Safety net: if the model returned JSON despite the plain-text prompt,
+        // parse {"lines": [...]} into newline-separated text.
+        let finalText = Self.parseStructuredResponseIfNeeded(fullText)
         #if DEBUG
-        print("Successfully extracted text: \(extractedText.prefix(100))...")
+        print("Successfully extracted text: \(finalText.prefix(100))...")
         #endif
-        return extractedText
+        return finalText
+    }
+
+    /// If text looks like a {"lines": [...]} JSON response, join the lines.
+    /// Otherwise return the text as-is.
+    private static func parseStructuredResponseIfNeeded(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{"),
+              let data = trimmed.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let lines = json["lines"] as? [String] else {
+            return text
+        }
+        return lines.joined(separator: "\n")
     }
     
     private func savePhotoIfNeeded(image: UIImage, sessionId: UUID) async throws -> URL? {
@@ -898,6 +915,7 @@ extension CameraView {
         self.showRetryOption = allowsRetry && self.retryableImageData != nil
         self.showErrorAlert = !appState.showOnboarding
         self.isLoading = false
+        self.isStreaming = false
         let notif = UINotificationFeedbackGenerator()
         notif.prepare()
         notif.notificationOccurred(.error)

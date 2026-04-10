@@ -43,6 +43,39 @@ enum TextExtractionPipeline {
         return try await extractor.extractText(from: image, sessionId: sessionId)
     }
 
+    /// Streaming variant — yields text chunks as they arrive from the API.
+    /// Falls back to a single-yield stream for VisionService.
+    static func extractTextStream(from image: UIImage, sessionId: UUID? = nil) async -> AsyncThrowingStream<String, Error> {
+        let defaults = SharedDefaults.suite
+        let serviceRaw = defaults.string(forKey: SettingsKey.textExtractorService)
+            ?? TextExtractorType.vision.rawValue
+        var service = TextExtractorType(rawValue: serviceRaw) ?? .vision
+
+        if service == .gemini {
+            let apiKey = KeychainService.loadAPIKey()
+            if apiKey?.isEmpty ?? true {
+                #if DEBUG
+                print("TextExtractionPipeline: Gemini selected but API key missing, falling back to Vision")
+                #endif
+                service = .vision
+            }
+        }
+
+        #if DEBUG
+        print("TextExtractionPipeline (stream): Using \(service.displayName) service")
+        #endif
+
+        let extractor: ImageTextExtractor
+        switch service {
+        case .gemini:
+            extractor = GeminiService()
+        case .vision:
+            extractor = VisionService()
+        }
+
+        return await extractor.extractTextStream(from: image, sessionId: sessionId)
+    }
+
     // MARK: - Settings Sync
 
     /// Keys that need to be readable by the share extension.

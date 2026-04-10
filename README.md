@@ -34,8 +34,10 @@ It uses the Gemini API for OCR and can send results to Drafts if you want.
 ### 3. Start Capturing
 1. Point your camera at handwritten text or documents
 2. Tap the capture button
-3. Wait for AI processing
+3. Watch text appear in real time as the AI extracts it
 4. Review and use the extracted text
+
+You can also share images from other apps (Photos, Files, Safari, etc.) using the iOS share sheet — Cat Scribe will open and extract text automatically.
 
 ## Configuration Options
 
@@ -56,6 +58,11 @@ It uses the Gemini API for OCR and can send results to Drafts if you want.
 - HEIC compression for optimal file size
 - Core Image-based preprocessing
 - Quality optimization for OCR accuracy
+
+### Streaming Text Extraction
+- Live text preview as the AI processes your image
+- Monospaced overlay with blinking cursor during extraction
+- Graceful handling of structured JSON responses
 
 ### Network & Reliability
 - Automatic retry with exponential backoff
@@ -80,11 +87,12 @@ The app follows a clean architecture pattern with:
 
 ### Key Components
 
-- `GeminiService`: Handles AI API communication
+- `GeminiService`: Handles AI API communication with streaming support
 - `CameraManager`: Manages camera capture and settings
 - `ImageProcessor`: Handles image preprocessing
 - `DraftsHelper`: Manages Drafts app integration
 - `AppStateManager`: Coordinates app state and navigation
+- `ShareExtensionPipeline`: Processes images received via iOS share sheet
 
 ## Privacy
 

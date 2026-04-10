@@ -5,6 +5,20 @@ All notable changes to NotebookSaver (Cat Scribe) will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3] - 2026-04-09
+
+### Added
+- **Streaming text extraction**: Live text preview overlay with blinking cursor as the AI processes images in real time
+- **Share extension**: Receive images from Photos, Files, Safari, and other apps via the iOS share sheet for instant text extraction
+- **JSON response parsing**: Graceful handling of structured `{"lines": [...]}` responses from the API
+
+### Changed
+- Replaced quote-based loading screen with streaming text overlay
+- GeminiService now supports streaming responses
+
+### Removed
+- `NotebookQuotes.swift` — no longer needed with streaming text preview
+
 ## [1.1] - 2025-10-28
 
 ### Changed
