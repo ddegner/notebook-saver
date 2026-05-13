@@ -70,6 +70,13 @@ enum GeminiThinkingLevel: String, CaseIterable, Identifiable {
 }
 
 class GeminiService: ImageTextExtractor {
+    static let defaultModelId = "gemini-3.1-flash-lite"
+    static let deprecatedFlashLitePreviewModelId = "gemini-3.1-flash-lite-preview"
+
+    static func normalizedModelId(_ modelId: String) -> String {
+        modelId == deprecatedFlashLitePreviewModelId ? defaultModelId : modelId
+    }
+
     // Track if connection has been verified to avoid redundant warm-ups
     nonisolated(unsafe) private static var connectionVerified = false
 
@@ -84,7 +91,6 @@ class GeminiService: ImageTextExtractor {
     }
 
     // Defaults
-    private let defaultModelId = "gemini-3.1-flash-lite-preview" // Default model if nothing is set
     static let defaultPrompt = """
         You are an expert at reading handwritten notes. Follow these rules:
         - Return a JSON object with a single key "lines" containing an array of strings, one per line of text.
@@ -137,13 +143,14 @@ class GeminiService: ImageTextExtractor {
 
         if useCustomSettings {
             // Custom mode: use all stored individual settings
-            let selectedId = defaults.string(forKey: SettingsKey.selectedModelId) ?? "gemini-2.5-flash-lite"
+            let selectedId = defaults.string(forKey: SettingsKey.selectedModelId) ?? GeminiService.defaultModelId
             var modelToUse: String?
             if selectedId == "Custom" {
                 modelToUse = defaults.string(forKey: "customModelName")?.trimmingCharacters(in: .whitespacesAndNewlines)
             } else {
-                modelToUse = selectedId
+                modelToUse = GeminiService.normalizedModelId(selectedId)
             }
+            modelToUse = modelToUse.map(GeminiService.normalizedModelId)
             if modelToUse?.isEmpty ?? true {
                 modelToUse = nil
             }
@@ -165,7 +172,7 @@ class GeminiService: ImageTextExtractor {
 
             switch mode {
             case .fast:
-                modelToUse = "gemini-3.1-flash-lite-preview"
+                modelToUse = GeminiService.defaultModelId
                 thinkingLevel = .none
                 photoTokenBudget = .medium
             case .precise:

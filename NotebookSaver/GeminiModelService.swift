@@ -69,17 +69,19 @@ class GeminiModelService: ObservableObject {
                 
                 return supportsGenerateContent && !isUnsupportedFamily
             }
-            .map { $0.name.replacingOccurrences(of: "models/", with: "") }
+            .map { GeminiService.normalizedModelId($0.name.replacingOccurrences(of: "models/", with: "")) }
+            .removingDuplicates()
     }
     
     // Cache model IDs to UserDefaults
     private func cacheModelIds(_ modelIds: [String]) async {
-        let data = try? JSONEncoder().encode(modelIds)
+        let normalizedModelIds = modelIds.map(GeminiService.normalizedModelId).removingDuplicates()
+        let data = try? JSONEncoder().encode(normalizedModelIds)
         UserDefaults.standard.set(data, forKey: SettingsKey.cachedGeminiModels)
         UserDefaults.standard.set(true, forKey: SettingsKey.hasInitiallyFetchedModels)
         
         // Update published property
-        self.availableModels = modelIds
+        self.availableModels = normalizedModelIds
     }
     
     // Load cached model IDs
@@ -88,9 +90,10 @@ class GeminiModelService: ObservableObject {
             return getDefaultModelIds()
         }
         
-        guard let modelIds = try? JSONDecoder().decode([String].self, from: data) else {
+        guard let decodedModelIds = try? JSONDecoder().decode([String].self, from: data) else {
             return getDefaultModelIds()
         }
+        let modelIds = decodedModelIds.map(GeminiService.normalizedModelId).removingDuplicates()
         
         self.availableModels = modelIds
         return modelIds
@@ -99,6 +102,7 @@ class GeminiModelService: ObservableObject {
     // Fallback default model IDs
     private func getDefaultModelIds() -> [String] {
         return [
+            GeminiService.defaultModelId,
             "gemini-3-pro-preview",
             "gemini-2.5-flash-lite",
             "gemini-2.5-flash",
@@ -107,6 +111,13 @@ class GeminiModelService: ObservableObject {
             "gemini-1.5-flash",
             "gemini-1.5-flash-8b"
         ]
+    }
+}
+
+private extension Array where Element == String {
+    func removingDuplicates() -> [String] {
+        var seen = Set<String>()
+        return filter { seen.insert($0).inserted }
     }
 }
 

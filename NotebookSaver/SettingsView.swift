@@ -68,7 +68,7 @@ struct SettingsView: View {
     @State private var selectedTab: SettingsTab = .ai
 
     // === Persisted Settings (using centralized SettingsKey) ===
-    @AppStorage(SettingsKey.selectedModelId) private var selectedModelId: String = "gemini-3.1-flash-lite-preview"
+    @AppStorage(SettingsKey.selectedModelId) private var selectedModelId: String = GeminiService.defaultModelId
     @AppStorage(SettingsKey.userPrompt) private var userPrompt: String = GeminiService.defaultPrompt
     @AppStorage(SettingsKey.apiEndpointUrlString) private var apiEndpointUrlString: String = "https://generativelanguage.googleapis.com/v1beta/models/"
     @AppStorage(SettingsKey.draftsTag) private var draftsTag: String = "notebook"
@@ -1102,7 +1102,7 @@ struct SettingsView: View {
 
     // Reset settings to defaults
     private func resetToDefaults() {
-        selectedModelId = "gemini-3.1-flash-lite-preview"
+        selectedModelId = GeminiService.defaultModelId
         apiEndpointUrlString = "https://generativelanguage.googleapis.com/v1beta/models/"
         draftsTag = "notebook"
         photoFolderName = "notebook" // Updated from savePhotosToAlbum

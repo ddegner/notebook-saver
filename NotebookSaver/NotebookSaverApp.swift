@@ -11,7 +11,7 @@ struct NotebookSaverApp: App {
     init() {
         // Register default values for all settings
         let defaults: [String: Any] = [
-            SettingsKey.selectedModelId: "gemini-3.1-flash-lite-preview",
+            SettingsKey.selectedModelId: GeminiService.defaultModelId,
             SettingsKey.textExtractorService: "vision",
             SettingsKey.savePhotosEnabled: false,
             SettingsKey.addDraftTagEnabled: true,
@@ -27,6 +27,7 @@ struct NotebookSaverApp: App {
         ]
         UserDefaults.standard.register(defaults: defaults)
         SharedDefaults.suite.register(defaults: defaults)
+        migrateDeprecatedGeminiModelIds()
 
         // Migrate old TextExtractorType values (UI strings -> stable identifiers)
         if let oldValue = UserDefaults.standard.string(forKey: SettingsKey.textExtractorService) {
@@ -37,6 +38,19 @@ struct NotebookSaverApp: App {
                 UserDefaults.standard.set("vision", forKey: SettingsKey.textExtractorService)
             default:
                 break // Already migrated or valid
+            }
+        }
+    }
+
+    private func migrateDeprecatedGeminiModelIds() {
+        for defaults in [UserDefaults.standard, SharedDefaults.suite] {
+            if defaults.string(forKey: SettingsKey.selectedModelId) == GeminiService.deprecatedFlashLitePreviewModelId {
+                defaults.set(GeminiService.defaultModelId, forKey: SettingsKey.selectedModelId)
+            }
+
+            if let customModel = defaults.string(forKey: "customModelName"),
+               customModel.trimmingCharacters(in: .whitespacesAndNewlines) == GeminiService.deprecatedFlashLitePreviewModelId {
+                defaults.set(GeminiService.defaultModelId, forKey: "customModelName")
             }
         }
     }
